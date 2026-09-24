@@ -1,16 +1,29 @@
-# WazuhAutomation
+# Wazuh Automation
+
 This automation retrieves CALDERA execution evidence and Wazuh alerts, selects the collection window, correlates the records and generates CSV/JSON results.
+
+The operator starts the test and finishes the operation in CALDERA. The automation then retrieves and processes its evidence after the operator supplies the operation ID and credentials.
 
 ## 1. Requirements and deployment
 
-The automation runs on the Windows laptop. Test actions execute on the Windows test VM, Wazuh detection evidence is collected from the Ubuntu Wazuh server.
+The automation runs on the Windows laptop. Test actions execute on the Windows test VM, and Wazuh detection evidence is collected from the Ubuntu Wazuh server.
 
 | Component | Requirement |
 |---|---|
-| Windows laptop | Python 3.10 or newer and PowerShell |
+| Windows laptop | Python 3.10 or newer, PowerShell and Paramiko, installed through requirements.txt |
 | CALDERA Ubuntu VM | Running API and active red API key |
 | Wazuh Ubuntu VM | Running Wazuh services, SSH and sudo access to alert files |
-| Windows test VM | CALDERA agent, Wazuh agent and required event collection |
+| Windows test VM | CALDERA agent, Wazuh agent, Sysmon and configured event forwarding for the current workflow |
+
+The laptop must reach the CALDERA API and Wazuh SSH service. Keep the laptop and VM clocks synchronized.
+
+### Is Sysmon required?
+
+**Sysmon is required for the current CertUtil validation and matching workflow.** The selected Wazuh rules use Sysmon process-creation events, and the current matcher checks those events for process IDs, parent process IDs and command lines.
+
+Sysmon must run on the **Windows test VM**, and the Wazuh agent must forward the Microsoft-Windows-Sysmon/Operational channel. It does not need to be installed on the laptop or Ubuntu servers. If it is already installed and collecting correctly, no reinstallation is needed.
+
+Wazuh can collect other event sources without Sysmon. However, using a different source for this framework would require compatible detection rules and matching logic. This guide records Sysmon as a prerequisite; its installation procedure is outside the automation setup.
 
 ## 2. Framework files
 
@@ -19,17 +32,17 @@ Extract caldera-wazuh-automatic-collection.zip and keep these files together in 
 | File | Purpose |
 |---|---|
 | collect_operation.py | Retrieves the report, derives the window, collects alerts and invokes matching |
-| remote_collect.py | Reads Wazuh alert files and executed remotely through SSH |
+| remote_collect.py | Reads Wazuh alert files and is executed remotely through SSH |
 | match_results.py | Matches evidence and generates results |
 | config.json | Stores addresses, endpoint mapping and timing settings |
-| requirements.txt | Declares the dependency |
+| requirements.txt | Declares the Paramiko dependency |
 | test_workflow.py | Runs offline checks |
 
 The remote collector does not need to be manually installed on the Wazuh VM.
 
-## 4. One-time setup
+## 3. One-time setup
 
-### 4.1 Open PowerShell in the extracted folder
+### 3.1 Open PowerShell in the extracted folder
 
 Open the folder containing collect_operation.py in File Explorer. Click the address bar, type powershell and press Enter.
 
@@ -43,7 +56,7 @@ python --version
 
 Confirm that collect_operation.py and config.json appear in the listing and Python is version 3.10 or newer.
 
-### 4.2 Install the dependency
+### 3.2 Install the dependency
 
 Run on the Windows laptop:
 
@@ -53,7 +66,31 @@ python -m pip install -r requirements.txt
 
 Normal script execution does not require administrator privileges on the laptop.
 
-### 4.3 Obtain the CALDERA API key
+### 3.3 Establish SSH host trust
+
+From the same Windows account that will run the automation, connect to the Wazuh server:
+
+~~~powershell
+ssh test@192.168.134.133
+~~~
+
+Replace the username and address if they differ in your environment.
+
+Before accepting a new host key, verify its fingerprint against the Wazuh VM. For an ED25519 host key, run this command in the Ubuntu VM console:
+
+~~~bash
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+~~~
+
+After verifying and successfully connecting, return to Windows PowerShell:
+
+~~~bash
+exit
+~~~
+
+If this Windows account has already connected to the same server and verified its key, this step need not be repeated. The automation reads the Windows user's .ssh/known_hosts file and rejects unknown or changed server keys.
+
+### 3.4 Obtain the CALDERA API key
 
 For the current CALDERA 5.3.0 server started with --insecure, run in the CALDERA Ubuntu VM:
 
@@ -62,9 +99,11 @@ cd ~/caldera
 grep '^api_key_red:' conf/default.yml
 ~~~
 
-Use the api_key_red
+Enter the **value associated with api_key_red**, excluding surrounding quotes, when prompted by the automation. This is different from the CALDERA dashboard password.
 
-### 4.4 Check config.json
+If CALDERA uses another configuration, obtain the key from that active configuration instead. Do not include the API key in documentation or screenshots.
+
+### 3.5 Check config.json
 
 ~~~json
 {
@@ -80,18 +119,28 @@ Use the api_key_red
 }
 ~~~
 
-Keep the agent ID as the string "001" to preserve its leading zeros. The hostname and agent ID must identify the intended endpoint. Do not add passwords or API keys to this file.
-Change the wazuh and caldera url to your own set.
+Update the following values for your environment:
 
-## 5. Commands for each collection
+- **caldera_url:** CALDERA server URL, including the protocol and port.
+- **wazuh_host:** Wazuh SSH hostname or IP address, without http:// or https://.
+- **wazuh_port:** SSH port, normally 22.
+- **wazuh_user:** Ubuntu account used to access the Wazuh server.
+- **windows_host:** Target hostname as recorded in CALDERA and Wazuh.
+- **wazuh_agent_id:** Wazuh agent ID for that target.
 
-### 5.1 Complete the test operation
+Keep the agent ID as the string "001" to preserve its leading zeros. Do not add passwords or API keys to this file.
+
+The supplied HTTP CALDERA address is intended for the controlled lab network; it does not encrypt the API key in transit.
+
+## 4. Commands for each collection
+
+### 4.1 Complete the test operation
 
 Run the selected test in CALDERA. Wait for the intended abilities to complete, review execution status, then finish/close the operation. Do not interrupt an executing ability just to satisfy the collector.
 
 The script rejects an operation without a finish timestamp or a selected step without a completion timestamp.
 
-### 5.2 List operation IDs
+### 4.2 List operation IDs
 
 From Windows PowerShell in the automatic-collection folder:
 
@@ -101,7 +150,7 @@ python .\collect_operation.py --list
 
 Enter the CALDERA red API key at the hidden prompt. Copy the UUID for the intended operation from the listing.
 
-### 5.3 Run automated collection
+### 4.3 Run automated collection
 
 ~~~powershell
 python .\collect_operation.py --operation YOUR-OPERATION-ID
@@ -124,6 +173,16 @@ python .\collect_operation.py --operation YOUR-OPERATION-ID --out .\runs\certuti
 ~~~
 
 The output folder must not already exist. Choose a new name for another collection.
+
+## 5. Automatic collection window and matching scope
+
+By default, collection covers **30 seconds before the earliest step delegation through 90 seconds after the latest step completion**. The script waits a further **30 seconds for ingestion** before collecting alerts. If that time has already passed, no additional wait is needed.
+
+These timings are derived from the CALDERA report and the settings in config.json. The operator does not need to enter timestamps manually.
+
+The current matcher supports **Sysmon process-creation evidence for the executor and its direct child processes**. It checks endpoint identity, compatible timestamps, process relationships and the full normalized execution command. An ATT&CK technique ID alone is not sufficient to establish a match.
+
+Other event types and EDR platforms require additional collection and matching logic. The ingestion allowance does not guarantee that every event has arrived.
 
 ## 6. Output files
 
@@ -153,5 +212,7 @@ Retain the entire run folder so each summary remains traceable to its source evi
 | output_present | Whether the step export includes an output field |
 
 Output presence does not by itself establish that the output satisfies the procedure's intended outcome.
+
+The current version evaluates one configured endpoint per invocation and supports a maximum one-day collection window. Missing telemetry, expired log retention or ingestion delays must be considered before reporting a detection gap.
 
 
