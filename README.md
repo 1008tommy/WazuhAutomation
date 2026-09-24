@@ -17,13 +17,114 @@ The automation runs on the Windows laptop. Test actions execute on the Windows t
 
 The laptop must reach the CALDERA API and Wazuh SSH service. Keep the laptop and VM clocks synchronized.
 
-### Is Sysmon required?
+### Install Sysmon and configure Wazuh event collection
 
-**Sysmon is required for the current CertUtil validation and matching workflow.** The selected Wazuh rules use Sysmon process-creation events, and the current matcher checks those events for process IDs, parent process IDs and command lines.
+Sysmon is required for the current CertUtil detection and matching workflow. It provides process-creation events containing executable paths, command lines, process IDs and parent-process information.
 
-Sysmon must run on the **Windows test VM**, and the Wazuh agent must forward the Microsoft-Windows-Sysmon/Operational channel. It does not need to be installed on the laptop or Ubuntu servers. If it is already installed and collecting correctly, no reinstallation is needed.
+Perform these steps inside the **Windows test VM**, using **PowerShell as Administrator**. Sysmon does not need to be installed on the Windows laptop or Ubuntu servers.
 
-Wazuh can collect other event sources without Sysmon. However, using a different source for this framework would require compatible detection rules and matching logic. This guide records Sysmon as a prerequisite; its installation procedure is outside the automation setup.
+#### 1. Check whether Sysmon is already installed
+
+```powershell
+Get-Service -Name '*Sysmon*'
+```
+
+If a Sysmon service exists and is running, skip installation and verify event collection below. Do not replace an existing configuration without reviewing it.
+
+#### 2. Download and install Sysmon
+
+For the lab's 64-bit Windows test VM:
+
+```powershell
+Invoke-WebRequest -Uri 'https://download.sysinternals.com/files/Sysmon.zip' -OutFile "$env:TEMP\Sysmon.zip"
+
+Expand-Archive -Path "$env:TEMP\Sysmon.zip" -DestinationPath "$env:TEMP\Sysmon" -Force
+
+& "$env:TEMP\Sysmon\Sysmon64.exe" -accepteula -i
+```
+
+This installs Sysmon using its default configuration and accepts the Microsoft licence terms. Internet access is required for the download.
+
+The default configuration was used for this pilot. Other test procedures may require additional event types or configuration changes.
+
+Verify the service:
+
+```powershell
+Get-Service -Name '*Sysmon*'
+```
+
+The installed service should show **Running**.
+
+#### 3. Configure the Wazuh agent to collect Sysmon events
+
+Back up the existing agent configuration:
+
+```powershell
+$configPath = 'C:\Program Files (x86)\ossec-agent\ossec.conf'
+$backupPath = "$configPath.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+Copy-Item -LiteralPath $configPath -Destination $backupPath
+```
+
+Open it:
+
+```powershell
+notepad.exe $configPath
+```
+
+Add the following block **inside the existing `<ossec_config>` element**, before its closing `</ossec_config>` tag:
+
+```xml
+<localfile>
+  <location>Microsoft-Windows-Sysmon/Operational</location>
+  <log_format>eventchannel</log_format>
+</localfile>
+```
+
+If this channel is already configured, do not add a duplicate block. Keep the other existing settings.
+
+Save the file, close Notepad and restart the Wazuh agent:
+
+```powershell
+Restart-Service -Name WazuhSvc
+Get-Service -Name WazuhSvc
+```
+
+The service should show **Running**.
+
+#### 4. Verify local process-event recording
+
+Generate a harmless process event:
+
+```powershell
+whoami.exe
+```
+
+Display recent Sysmon process-creation events:
+
+```powershell
+Get-WinEvent -FilterHashtable @{
+    LogName = 'Microsoft-Windows-Sysmon/Operational'
+    Id = 1
+    StartTime = (Get-Date).AddMinutes(-5)
+} -MaxEvents 10 | Format-List TimeCreated, Id, Message
+```
+
+Look for an event containing `whoami.exe`.
+
+This verifies local recording; it does not by itself prove that Wazuh received the event or generated an alert.
+
+#### 5. Check Wazuh collection startup
+
+```powershell
+Get-Content 'C:\Program Files (x86)\ossec-agent\ossec.log' -Tail 100 |
+    Select-String -Pattern 'Sysmon|ERROR|WARNING'
+```
+
+Look for a message indicating that the agent is analysing the `Microsoft-Windows-Sysmon/Operational` channel, and review any errors.
+
+During the subsequent CALDERA test, use the collected Wazuh evidence to confirm server-side receipt and detection. Not every recorded process event generates an alert.
+
+Retain the Sysmon version and configuration used for the evaluation so later results can be compared against the same baseline.
 
 ## 2. Framework files
 
@@ -56,15 +157,28 @@ python --version
 
 Confirm that collect_operation.py and config.json appear in the listing and Python is version 3.10 or newer.
 
-### 3.2 Install the dependency
+### 3.2 Create a virtual environment and install dependencies
 
-Run on the Windows laptop:
+Run these commands from the extracted `automatic-collection` folder on the Windows laptop:
 
-~~~powershell
-python -m pip install -r requirements.txt
-~~~
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
 
-Normal script execution does not require administrator privileges on the laptop.
+Use the virtual environment’s Python to execute the automation:
+
+```powershell
+.\.venv\Scripts\python.exe .\collect_operation.py --list
+```
+
+```powershell
+.\.venv\Scripts\python.exe .\collect_operation.py --operation YOUR-OPERATION-ID
+```
+
+Calling the virtual environment’s Python directly avoids needing to activate it or change PowerShell’s execution policy.
+
+Create the environment once. Reuse it for subsequent runs.
 
 ### 3.3 Establish SSH host trust
 
