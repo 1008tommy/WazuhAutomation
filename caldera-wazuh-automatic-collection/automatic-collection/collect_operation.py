@@ -138,6 +138,8 @@ def run(args):
     if min(before, after, grace) < 0:
         raise ValueError("Window settings must be nonnegative")
     start, end, steps = select_window(report, config["windows_host"], before, after)
+    print("Config:", args.config.resolve())
+    print("Wazuh:", config["wazuh_host"], "agent:", config["wazuh_agent_id"])
     print("Operation:", report["name"])
     print("Collection window (UTC):", start.isoformat(), "to", end.isoformat())
     wait = (end + timedelta(seconds=grace)-datetime.now(timezone.utc)).total_seconds()
@@ -162,6 +164,21 @@ def run(args):
                               "--agent", str(config["wazuh_agent_id"]),
                               "--start", start.isoformat(), "--end", end.isoformat()])
         collected = json.loads(remote(client, command, sudo_password))
+        print("Collected alerts:", collected.get("alert_count"), flush=True)
+        try:
+            archives = json.loads(remote(client, command + " --source archives", sudo_password))
+        except (ValueError, OSError, EOFError) as error:
+            archives = {
+                "collection_status": "error", "agent_id": str(config["wazuh_agent_id"]),
+                "start": start.isoformat(), "end": end.isoformat(),
+                "source": "/var/ossec/logs/archives", "event_count": 0, "events": [],
+                "files_scanned": [], "error": str(error),
+                "collected_at": datetime.now(timezone.utc).isoformat()
+            }
+        print("Archive collection:", archives.get("collection_status"),
+              "events:", archives.get("event_count"), flush=True)
+        if archives.get("collection_status") != "success":
+            print("Archive evidence unavailable:", archives.get("error", "unknown reason"))
     finally:
         client.close()
     if collected.get("collection_status") != "success":
@@ -175,6 +192,7 @@ def run(args):
     root.mkdir(parents=True, exist_ok=False)
     save(root/"caldera-report.json", report)
     save(root/"wazuh-alerts.json", collected)
+    save(root/"wazuh-archives.json", archives)
     save(root/"run-metadata.json", {
         "operation_id": operation, "caldera_url": url,
         "windows_host": config["windows_host"], "wazuh_agent_id": str(config["wazuh_agent_id"]),
@@ -183,12 +201,16 @@ def run(args):
         "collected_at": collected.get("collected_at"),
         "collection_method": "CALDERA v2 report API and read-only Wazuh SSH collector",
         "limitations": ["Ingestion allowance is not proof of complete telemetry.",
-                        "Available alert files only; absent detection does not establish a miss.",
+                        "Available alert and archive files only; absent evidence does not establish a miss.",
                         "Only configured endpoint is evaluated; all raw report steps are preserved."],
+        "archive_collection_status": archives.get("collection_status"),
+        "wazuh_host": config["wazuh_host"],
+        "config_path": str(args.config.resolve()),
         "collector_sha256": hashlib.sha256(program).hexdigest(),
     })
     completed = subprocess.run([sys.executable, str(HERE/"match_results.py"),
         "--caldera", str(root/"caldera-report.json"), "--wazuh", str(root/"wazuh-alerts.json"),
+        "--archives", str(root/"wazuh-archives.json"),
         "--agent", str(config["wazuh_agent_id"]), "--host", config["windows_host"],
         "--out", str(root/"results")])
     if completed.returncode:

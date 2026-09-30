@@ -24,7 +24,7 @@ def normalize(value):
 def valid_pid(value):
     return str(value).isdigit() and int(value) > 0
 
-def correlate(report, collected, agent_id, window_seconds=120, host_filter=None):
+def _match_records(report, collected, agent_id, window_seconds=120, host_filter=None):
     if collected.get("collection_status") != "success":
         raise ValueError("Wazuh collection was not successful")
     if str(collected.get("agent_id")) != agent_id:
@@ -129,7 +129,7 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None)
         if report.get("finish") is None:
             notes.append("Operation finish is null; do not describe the operation as completed.")
         if "output" not in step:
-            notes.append("Step output is absent; decoding content was not independently verified here.")
+            notes.append("Step output is absent; intended procedure outcome was not independently verified here.")
         if not in_range:
             notes.append("Step run time is missing or outside the collection window.")
         if not valid_pid(step.get("pid")):
@@ -177,10 +177,66 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None)
         "results": rows,
     }
 
+def correlate(report, collected, agent_id, window_seconds=120, host_filter=None, archives=None):
+    """Match each source independently; an archived rule field is never an alert."""
+    result = _match_records(report, collected, agent_id, window_seconds, host_filter)
+    archive_result = None
+    archive_status = "not_requested" if archives is None else archives.get("collection_status")
+    if archives is not None:
+        if str(archives.get("agent_id")) != agent_id:
+            raise ValueError("Archive agent differs from requested agent")
+        if any(time_value(archives[k]) != time_value(collected[k]) for k in ("start", "end")):
+            raise ValueError("Alert and archive windows differ")
+        if archive_status not in {"success", "unavailable", "error"}:
+            raise ValueError("Invalid archive collection status")
+        if archive_status == "success":
+            adapted = dict(archives, alerts=archives.get("events"), alert_count=archives.get("event_count"))
+            archive_result = _match_records(report, adapted, agent_id, window_seconds, host_filter)
+    result["schema_version"] = "0.2"
+    result["matcher_scope"] = "Sysmon process-creation evidence for executor or direct child; alerts and archives matched separately"
+    result["archive_collection_status"] = archive_status
+    result["archive_collection_error"] = archives.get("error") if archives else None
+    result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []
+    result["limitations"].extend([
+        "Related alerts do not establish technique-specific recognition or prevention.",
+        "Archive matches confirm only the matched process events, not complete procedure telemetry.",
+        "Grandchildren and other event types are outside this matcher scope.",
+        "Archive and alert counts overlap and must not be added as unique event counts."
+    ])
+    for index, row in enumerate(result["results"]):
+        evidence = []
+        if archive_result:
+            for original in archive_result["results"][index]["evidence"]:
+                item = dict(original)
+                item["event_index"] = item.pop("alert_index")
+                item["record_id"] = item.pop("alert_id")
+                item["received_time_utc"] = item.pop("alert_time_utc")
+                item.pop("rule_id", None)
+                item.pop("rule_description", None)
+                evidence.append(item)
+        unique = [e for e in evidence if not e["ambiguous"]]
+        sources = []
+        if row["matched_alert_count"]:
+            sources.append("alerts")
+        if unique:
+            sources.append("archives")
+        ambiguous = any(e["ambiguous"] for e in evidence + row["evidence"])
+        row["event_collection"] = "confirmed" if sources else "ambiguous_review" if ambiguous else "not_confirmed"
+        row["collection_evidence_sources"] = ";".join(sources)
+        row["archive_collection_status"] = archive_status
+        row["matched_archive_event_count"] = len(unique)
+        row["archive_evidence"] = evidence
+        row["alert_interpretation"] = "related_alert_observed" if row["matched_alert_count"] else "no_unique_alert_match"
+        row["notes"].append("Event collection and alert detection are evaluated separately.")
+        if archive_status != "success":
+            row["notes"].append("Archive evidence unavailable: " + str(archive_status))
+    return result
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--caldera", required=True, type=Path)
     parser.add_argument("--wazuh", required=True, type=Path)
+    parser.add_argument("--archives", type=Path, help="Optional raw-event export from remote collector")
     parser.add_argument("--agent", required=True)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--host", help="Evaluate only this CALDERA hostname")
@@ -191,24 +247,27 @@ def main():
     try:
         report = json.loads(args.caldera.read_text(encoding="utf-8-sig"))
         collected = json.loads(args.wazuh.read_text(encoding="utf-8-sig"))
-        result = correlate(report, collected, args.agent, args.window_seconds, args.host)
+        archives = json.loads(args.archives.read_text(encoding="utf-8-sig")) if args.archives else None
+        result = correlate(report, collected, args.agent, args.window_seconds, args.host, archives)
         result["generated_at"] = datetime.now(timezone.utc).isoformat()
         result["sources"] = [
             {"filename": p.name, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
-            for p in (args.caldera, args.wazuh)
+            for p in ([args.caldera, args.wazuh] + ([args.archives] if args.archives else []))
         ]
         args.out.mkdir(parents=True, exist_ok=False)
         (args.out / "results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         columns = ["operation_name", "link_id", "ability_id", "ability_name", "technique_id",
                    "host", "caldera_agent", "wazuh_agent_id", "run_utc", "caldera_pid",
                    "caldera_status", "execution", "detection", "prevention", "response",
-                   "rule_ids", "matched_alert_count", "output_present"]
+                   "rule_ids", "matched_alert_count", "output_present", "event_collection",
+                   "collection_evidence_sources", "archive_collection_status",
+                   "matched_archive_event_count", "alert_interpretation"]
         with (args.out / "results.csv").open("w", newline="", encoding="utf-8-sig") as stream:
             writer = csv.DictWriter(stream, fieldnames=columns, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(result["results"])
         for row in result["results"]:
-            print(f'{row["ability_name"]}: {row["execution"]}; detection={row["detection"]}; rules={row["rule_ids"]}')
+            print(f'{row["ability_name"]}: {row["execution"]}; collection={row["event_collection"]}; detection={row["detection"]}; rules={row["rule_ids"]}')
         print("Results saved to", args.out.resolve())
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, f"ERROR: {error}\n")
