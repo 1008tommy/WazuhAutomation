@@ -1,10 +1,10 @@
 {
-  "caldera_url": "http://192.168.134.131:8888",
-  "wazuh_host": "192.168.134.133",
+  "caldera_url": "http://192.168.234.128:8888",
+  "wazuh_host": "192.168.234.129",
   "wazuh_port": 22,
   "wazuh_user": "test",
   "windows_host": "Test",
-  "wazuh_agent_id": "001",
+  "wazuh_agent_id": "002",
   "before_seconds": 30,
   "after_seconds": 90,
   "ingestion_grace_seconds": 30
