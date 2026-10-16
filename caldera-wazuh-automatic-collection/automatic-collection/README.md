@@ -87,6 +87,8 @@ Run folders are never overwritten. If using the same operation twice within one 
 
 The matching behavior remains deliberately limited to Sysmon process-creation alerts for the executor/direct child, with matching endpoint, time, PID and full normalized command. Other types of TTP evidence require additional adapters. Raw operation evidence is preserved; evaluation is restricted to the configured Windows hostname.
 
+Results focus on detection: `event_collection` records whether matching process events were collected, while `detection` records whether a related Wazuh alert was observed. A related alert does not by itself prove that Wazuh recognized the specific ATT&CK technique.
+
 ## Limits and troubleshooting
 - Live access to your servers has NOT been tested here. Seven offline tests passed, including mocked API/SSH orchestration, window selection, open/incomplete operation rejection, real evidence matching, daily gzip de-duplication and malformed JSON handling.
 - HTTP 401/403: verify active API key. HTTP 404: check URL/operation ID/version.
@@ -98,8 +100,8 @@ The matching behavior remains deliberately limited to Sysmon process-creation al
 - The wait allowance does not prove every alert arrived. Increase the configured allowance for known delays; do not label empty results as missed without confirming telemetry health.
 - Historical missing/rotated/deleted files cannot be recovered by this script. files_scanned and completeness report what was available.
 - One-day maximum collection window in this prototype; multi-endpoint operations need separate endpoint mappings/invocations.
-- Missing output remains missing evidence; nonzero execution status does not establish prevention.
-- This version does not infer active response, prevention or full ATT&CK coverage.
+- Missing output remains missing evidence; a nonzero execution status needs review.
+- This version does not infer full ATT&CK coverage.
 - Logs and exports may contain command strings. The matcher treats them as data and never executes them.
 
 ## Offline tests

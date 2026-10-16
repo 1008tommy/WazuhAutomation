@@ -123,7 +123,6 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
         detection = ("observed" if unique else "ambiguous_review" if ambiguous
                      else "not_assessable" if not in_range else "no_matching_alert_observed")
         notes = [
-            "No absence of prevention/response is inferred from this alert export.",
             "Collection success does not verify endpoint telemetry completeness or ingestion delay.",
         ]
         if report.get("finish") is None:
@@ -152,8 +151,6 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             "caldera_status": status,
             "execution": execution,
             "detection": detection,
-            "prevention": "not_established",
-            "response": "not_assessed",
             "rule_ids": ";".join(sorted({e["rule_id"] for e in unique})),
             "matched_alert_count": len(unique),
             "output_present": "output" in step,
@@ -198,7 +195,7 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
     result["archive_collection_error"] = archives.get("error") if archives else None
     result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []
     result["limitations"].extend([
-        "Related alerts do not establish technique-specific recognition or prevention.",
+        "Related alerts do not establish technique-specific recognition.",
         "Archive matches confirm only the matched process events, not complete procedure telemetry.",
         "Grandchildren and other event types are outside this matcher scope.",
         "Archive and alert counts overlap and must not be added as unique event counts."
@@ -258,7 +255,7 @@ def main():
         (args.out / "results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         columns = ["operation_name", "link_id", "ability_id", "ability_name", "technique_id",
                    "host", "caldera_agent", "wazuh_agent_id", "run_utc", "caldera_pid",
-                   "caldera_status", "execution", "detection", "prevention", "response",
+                   "caldera_status", "execution", "detection",
                    "rule_ids", "matched_alert_count", "output_present", "event_collection",
                    "collection_evidence_sources", "archive_collection_status",
                    "matched_archive_event_count", "alert_interpretation"]
