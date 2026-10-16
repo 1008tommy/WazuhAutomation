@@ -28,6 +28,28 @@ def export(records, archive=False, status='success'):
     return {'collection_status':status,'agent_id':'002','start':START,'end':END,
             ('event_count' if archive else 'alert_count'):len(records), ('events' if archive else 'alerts'):records}
 
+def scheduled_report():
+    rep=report()
+    rep['steps']['a']['steps']=[
+        {'link_id':'create','name':'create task','command':r'schtasks.exe /Create /TN "Lab" /TR "C:\Windows\System32\cmd.exe /c mkdir C:\BASLab\done" /SC ONLOGON',
+         'pid':100,'status':0,'delegated':START,'run':'2020-01-02T00:01:00Z'},
+        {'link_id':'run','name':'run task','command':'schtasks.exe /Run /TN "Lab"',
+         'pid':200,'status':0,'delegated':'2020-01-02T00:01:05Z','run':'2020-01-02T00:01:15Z'}]
+    return rep
+
+def scheduled_action_event():
+    e=event()
+    e['timestamp']='2020-01-02T00:01:11Z'
+    e['data']['win']['system']['systemTime']='2020-01-02T00:01:10Z'
+    e['data']['win']['eventdata']={
+        'processId':'300','parentProcessId':'400',
+        'image':r'C:\Windows\System32\cmd.exe',
+        'commandLine':r'"C:\Windows\System32\cmd.exe" /c mkdir C:\BASLab\done',
+        'parentImage':r'C:\Windows\System32\svchost.exe',
+        'parentCommandLine':r'C:\Windows\System32\svchost.exe -k netsvcs -p -s Schedule'}
+    e['rule']={'id':'92052','description':'Generic command prompt alert'}
+    return e
+
 class RegressionTests(unittest.TestCase):
     def result(self, alerts=None, archives=None, rep=None):
         return correlate(rep or report(), export(alerts or []), '002', archives=archives)['results'][0]
@@ -76,6 +98,34 @@ class RegressionTests(unittest.TestCase):
             if category=='time': e['data']['win']['system']['systemTime']='2020-01-01T20:00:00Z'
             if category=='pid': e['data']['win']['eventdata']['processId']='999'
             self.assertEqual(self.result(archives=export([e],True))['event_collection'],'not_confirmed')
+
+    def test_registered_scheduled_action_matches_scheduler_spawned_alert(self):
+        e=scheduled_action_event()
+        rows=correlate(scheduled_report(),export([e]),'002',archives=export([e],True))['results']
+        self.assertEqual(rows[0]['detection'],'no_matching_alert_observed')
+        self.assertEqual(rows[1]['detection'],'observed')
+        self.assertEqual(rows[1]['rule_ids'],'92052')
+        self.assertEqual(rows[1]['matched_archive_event_count'],1)
+        self.assertEqual(rows[1]['evidence'][0]['relation'],'scheduled_task_action')
+        self.assertEqual(rows[1]['evidence'][0]['task_name'],'Lab')
+
+    def test_scheduled_action_requires_name_action_parent_and_time(self):
+        for mismatch in ('name','action','parent','time'):
+            rep=scheduled_report(); e=scheduled_action_event()
+            if mismatch=='name': rep['steps']['a']['steps'][1]['command']='schtasks.exe /Run /TN "Other"'
+            if mismatch=='action': e['data']['win']['eventdata']['commandLine']=r'"C:\Windows\System32\cmd.exe" /c mkdir C:\BASLab\other'
+            if mismatch=='parent': e['data']['win']['eventdata']['parentCommandLine']=r'C:\Windows\System32\svchost.exe -k netsvcs -p -s Other'
+            if mismatch=='time': e['data']['win']['system']['systemTime']='2020-01-02T00:02:00Z'
+            row=correlate(rep,export([e]),'002')['results'][1]
+            self.assertEqual(row['detection'],'no_matching_alert_observed',mismatch)
+
+    def test_overlapping_scheduled_runs_remain_ambiguous(self):
+        rep=scheduled_report()
+        second=copy.deepcopy(rep['steps']['a']['steps'][1]); second['link_id']='run2'; second['pid']=201
+        rep['steps']['a']['steps'].append(second)
+        rows=correlate(rep,export([scheduled_action_event()]),'002')['results']
+        self.assertEqual(rows[1]['detection'],'ambiguous_review')
+        self.assertEqual(rows[2]['detection'],'ambiguous_review')
 
     def test_rotated_gzip_dedup_and_endpoint_filter(self):
         with tempfile.TemporaryDirectory() as td:

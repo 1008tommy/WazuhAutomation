@@ -85,12 +85,12 @@ Each invocation creates a new runs/<UTC timestamp>-<operation ID prefix> folder 
 
 Run folders are never overwritten. If using the same operation twice within one second, wait or supply --out a-new-folder.
 
-The matching behavior remains deliberately limited to Sysmon process-creation alerts for the executor/direct child, with matching endpoint, time, PID and full normalized command. Other types of TTP evidence require additional adapters. Raw operation evidence is preserved; evaluation is restricted to the configured Windows hostname.
+The matching behavior covers Sysmon process-creation alerts for the executor/direct child, using endpoint, time, PID and full normalized command. It also links a scheduled-task action to a successful same-agent `schtasks /Create` and `/Run` sequence when the task name and full registered action match, and Sysmon identifies the Task Scheduler service as the action's parent. Other types of TTP evidence require additional adapters. Raw operation evidence is preserved; evaluation is restricted to the configured Windows hostname.
 
 Results focus on detection: `event_collection` records whether matching process events were collected, while `detection` records whether a related Wazuh alert was observed. A related alert does not by itself prove that Wazuh recognized the specific ATT&CK technique.
 
 ## Limits and troubleshooting
-- Live access to your servers has NOT been tested here. Seven offline tests passed, including mocked API/SSH orchestration, window selection, open/incomplete operation rejection, real evidence matching, daily gzip de-duplication and malformed JSON handling.
+- Live access to your servers has NOT been tested here. Thirteen offline tests passed, including mocked API/SSH orchestration, window selection, open/incomplete operation rejection, scheduled-task action matching, daily gzip de-duplication and malformed JSON handling. The saved scheduled-task run was also reprocessed locally with the corrected matcher.
 - HTTP 401/403: verify active API key. HTTP 404: check URL/operation ID/version.
 - Operation still open: finish it in CALDERA after execution completes, then retry.
 - SSH authentication failed: verify Ubuntu credentials and configured IP.

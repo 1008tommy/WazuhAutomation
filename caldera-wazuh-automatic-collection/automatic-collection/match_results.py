@@ -5,7 +5,7 @@ import hashlib
 import html
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 def time_value(value):
@@ -23,6 +23,41 @@ def normalize(value):
 
 def valid_pid(value):
     return str(value).isdigit() and int(value) > 0
+
+def schtasks_option(command, option):
+    match = re.search(r'(?i)(?<!\S)' + re.escape(option) + r'\s+(?:"([^"]+)"|(\S+))', command)
+    return (match.group(1) or match.group(2)) if match else None
+
+def action_command(value):
+    # Task Scheduler may quote the executable when it records the process event.
+    return normalize(value).replace('"', '').casefold()
+
+def scheduled_run_actions(steps):
+    """Find a successful /Run and its most recent same-agent /Create /TN /TR."""
+    creations = {}
+    for paw, _, step in steps:
+        command = step.get("command", "")
+        if step.get("status") != 0 or not step.get("run") or not re.search(r'(?i)\bschtasks(?:\.exe)?\s+/create\b', command):
+            continue
+        name, action = schtasks_option(command, "/TN"), schtasks_option(command, "/TR")
+        if name and action:
+            creations.setdefault((paw, name.casefold()), []).append((time_value(step["run"]), action))
+    actions = {}
+    for index, (paw, _, step) in enumerate(steps):
+        command = step.get("command", "")
+        if step.get("status") != 0 or not step.get("run") or not re.search(r'(?i)\bschtasks(?:\.exe)?\s+/run\b', command):
+            continue
+        name = schtasks_option(command, "/TN")
+        if not name:
+            continue
+        eligible = [(when, action) for when, action in creations.get((paw, name.casefold()), [])
+                    if when <= time_value(step["run"])]
+        if eligible:
+            when = max(t for t, _ in eligible)
+            latest = {action for t, action in eligible if t == when}
+            if len(latest) == 1:
+                actions[index] = (name, latest.pop())
+    return actions
 
 def _match_records(report, collected, agent_id, window_seconds=120, host_filter=None):
     if collected.get("collection_status") != "success":
@@ -45,6 +80,7 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             if host_filter and host.get("host", "").casefold() != host_filter.casefold():
                 continue
             steps.append((paw, host, step))
+    task_actions = scheduled_run_actions(steps)
 
     # One candidate alert can belong to several steps: never silently choose.
     candidates = [[] for _ in steps]
@@ -86,7 +122,21 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 relation = "executor_process"
             elif str(ev.get("parentProcessId")) == str(pid) and command in normalize(ev.get("parentCommandLine", "")):
                 relation = "direct_child"
+            task_action = task_actions.get(si)
+            if relation is None and task_action:
+                _, registered_action = task_action
+                parent = normalize(ev.get("parentCommandLine", ""))
+                if (started <= event_time <= run_time + timedelta(seconds=5)
+                    and normalize(ev.get("parentImage", "")).casefold().endswith(r"\svchost.exe")
+                    and re.search(r'(?i)(?:^|\s)-s\s+Schedule(?:\s|$)', parent)
+                    and action_command(ev.get("commandLine", "")) == action_command(registered_action)):
+                    relation = "scheduled_task_action"
             if relation:
+                matched_on = (["agent_id", "hostname", "host_ip_if_present", "event_time_window",
+                               "registered_task_name", "registered_action_command", "task_scheduler_parent"]
+                              if relation == "scheduled_task_action" else
+                              ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
+                               "process_or_parent_pid", "full_executor_command"])
                 owners.append(si)
                 candidates[si].append({
                     "alert_index": index,
@@ -102,9 +152,8 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                     "process_guid": ev.get("processGuid"),
                     "parent_process_guid": ev.get("parentProcessGuid"),
                     "command_line": ev.get("commandLine"),
-                    "matched_on": ["agent_id", "hostname", "host_ip_if_present",
-                                   "event_time_window", "process_or_parent_pid",
-                                   "full_executor_command"],
+                    "matched_on": matched_on,
+                    "task_name": task_action[0] if relation == "scheduled_task_action" else None,
                 })
         if not owners:
             rejected.append(index)
@@ -160,7 +209,7 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
         })
     return {
         "schema_version": "0.1",
-        "matcher_scope": "Sysmon process-creation alerts for executor or direct child; offline prototype",
+        "matcher_scope": "Sysmon process-creation alerts for executor, direct child, or registered scheduled-task action; offline prototype",
         "window_seconds": window_seconds,
         "collection_window": {"start": collected["start"], "end": collected["end"]},
         "limitations": [
@@ -189,14 +238,15 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
         if archive_status == "success":
             adapted = dict(archives, alerts=archives.get("events"), alert_count=archives.get("event_count"))
             archive_result = _match_records(report, adapted, agent_id, window_seconds, host_filter)
-    result["schema_version"] = "0.2"
-    result["matcher_scope"] = "Sysmon process-creation evidence for executor or direct child; alerts and archives matched separately"
+    result["schema_version"] = "0.3"
+    result["matcher_scope"] = "Sysmon process-creation evidence for executor, direct child, or registered scheduled-task action; alerts and archives matched separately"
     result["archive_collection_status"] = archive_status
     result["archive_collection_error"] = archives.get("error") if archives else None
     result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []
     result["limitations"].extend([
         "Related alerts do not establish technique-specific recognition.",
         "Archive matches confirm only the matched process events, not complete procedure telemetry.",
+        "Scheduled-task action matching requires a successful same-agent task creation, a successful /Run step, an exact action command, and the Task Scheduler service parent.",
         "Grandchildren and other event types are outside this matcher scope.",
         "Archive and alert counts overlap and must not be added as unique event counts."
     ])
