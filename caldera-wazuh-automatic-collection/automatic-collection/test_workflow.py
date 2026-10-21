@@ -131,10 +131,15 @@ class RegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); folder=root/'2020'/'Jan'; folder.mkdir(parents=True)
             e=event(); other=copy.deepcopy(e); other['agent']['id']='001'; other['id']='other'
-            (root/'archives.json').write_text(json.dumps(e)+'\n'+json.dumps(other)+'\n')
+            same_id=copy.deepcopy(e)
+            same_id['data']['win']['system']['eventRecordID']='31221'
+            same_id['data']['win']['eventdata']['image']=r'C:\BASLab\masquerade-test\lab-helper.exe'
+            (root/'archives.json').write_text(json.dumps(e)+'\n'+json.dumps(same_id)+'\n'+json.dumps(other)+'\n')
             with gzip.open(folder/'ossec-archive-02.json.gz','wt') as f: f.write(json.dumps(e)+'\n')
             result=remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
-            self.assertEqual(result['event_count'],1)
+            self.assertEqual(result['event_count'],2)
+            self.assertEqual({item['data']['win']['eventdata'].get('image') for item in result['events']},
+                             {None,r'C:\BASLab\masquerade-test\lab-helper.exe'})
             self.assertEqual(len(result['files_scanned']),2)
 
     def test_missing_and_corrupt_files_are_not_silent_success(self):

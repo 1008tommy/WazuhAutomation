@@ -50,7 +50,9 @@ def collect(root, agent, start, end, source="alerts"):
                     raise ValueError(f"Cannot parse {path}, line {number}; retry collection: {error}") from error
                 if str(record.get("agent", {}).get("id")) != agent or not start <= alert_time <= end:
                     continue
-                identity = record.get("id") or json.dumps(record, sort_keys=True)
+                # Wazuh IDs can be shared by distinct events in the same second.
+                # Only collapse identical records duplicated across current/rotated files.
+                identity = json.dumps(record, sort_keys=True, separators=(",", ":"))
                 if identity not in seen:
                     seen.add(identity)
                     matches.append(record)
