@@ -4,6 +4,7 @@ description: ---
 objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
 atomic_ordering:
 - f0bb5f01-c06c-4f8e-8a27-475842661906
+- 1aa870e8-06c7-4749-ba29-2831b310c51a
 abilities:
  f0bb5f01-c06c-4f8e-8a27-475842661906:
   name:  Lab Scheduled Task Creation
@@ -14,4 +15,14 @@ abilities:
    - psh:
      platform: windows
      command: |
-       schtasks.exe /Create /TN "CALDERA-Lab-Test" /TR "C:\Windows\System32\cmd.exe /c exit" /SC ONLOGON
+       schtasks.exe /Create /TN "CALDERA-Lab-Test" /TR "C:\Windows\System32\cmd.exe /c mkdir C:\BASLab\task-executed" /SC ONLOGON
+ 1aa870e8-06c7-4749-ba29-2831b310c51a:
+  name:  Run Lab Scheduled Task
+  tactic:  execution
+  technique_name:  "Scheduled Task/Job: Scheduled Task"
+  technique_id:  T1053.005
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $marker='C:\BASLab\task-executed'; schtasks.exe /Run /TN "CALDERA-Lab-Test"; if ($LASTEXITCODE -ne 0) { throw 'Task did not start' }; for ($i=0; $i -lt 10 -and -not (Test-Path -LiteralPath $marker -PathType Container); $i++) { Start-Sleep -Seconds 1 }; if (-not (Test-Path -LiteralPath $marker -PathType Container)) { throw 'Task action not observed' }; Write-Output "Task action verified: $marker"

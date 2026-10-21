@@ -1,0 +1,28 @@
+id: 10749bee-8a14-4917-b3e7-4608546b13d7
+name: Renamed Utility Lab
+description: ---
+objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+atomic_ordering:
+- 1ff3f71b-ccc1-4f39-8045-0dbb8359e6b0
+- c040e39e-6b7d-4e35-8758-6c7d10d18feb
+abilities:
+ 1ff3f71b-ccc1-4f39-8045-0dbb8359e6b0:
+  name:  Stage renamed lab utility
+  tactic:  defense-evasion
+  technique_name:  "Masquerading: Rename System Utilities"
+  technique_id:  T1036.003
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $dir='C:\BASLab\masquerade-test'; $dst=Join-Path $dir 'lab-helper.exe'; if (Test-Path -LiteralPath $dir) { throw 'Previous lab directory exists' }; New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath 'C:\Windows\System32\whoami.exe' -Destination $dst -ErrorAction Stop; Get-Item -LiteralPath $dst | Select-Object FullName,Length
+ c040e39e-6b7d-4e35-8758-6c7d10d18feb:
+  name:  Run renamed lab utility
+  tactic:  defense-evasion
+  technique_name:  "Masquerading: Rename System Utilities"
+  technique_id:  T1036.003
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $exe='C:\BASLab\masquerade-test\lab-helper.exe'; if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Renamed utility missing' }; $item=Get-Item -LiteralPath $exe; Write-Output "File name: $($item.Name); original name: $($item.VersionInfo.OriginalFilename)"; $result=& $exe; if ($LASTEXITCODE -ne 0) { throw 'Renamed utility failed' }; Write-Output "Utility output: $result"
