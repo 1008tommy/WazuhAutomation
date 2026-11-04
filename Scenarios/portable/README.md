@@ -16,7 +16,7 @@ The active CALDERA configuration must list `stockpile` under `plugins:`. If the 
 
 ## Install on a test CALDERA server
 
-1. Use a fresh CALDERA installation with Stockpile enabled. Stop CALDERA before copying data files. From the CALDERA server's shell, clone the scenario branch **outside** the `~/caldera` directory:
+1. Use a CALDERA installation with Stockpile enabled; the [lab's CALDERA 5.3.0 setup](../../README.md#caldera-530-lab-installation) is documented in this repository. Stop CALDERA before copying data files. From the CALDERA server's shell, clone the scenario branch **outside** the `~/caldera` directory:
 
    ```bash
    git clone --branch caldera-portable-lab-bundle --single-branch https://github.com/1008tommy/WazuhAutomation.git "$HOME/WazuhAutomation"
