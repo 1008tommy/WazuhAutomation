@@ -19,8 +19,8 @@
 
           '
         timeout: 60
-        requirements:
-        - plugins.stockpile.app.requirements.paw_provenance:
-          - source: host.file.path
-        - plugins.stockpile.app.requirements.paw_provenance:
-          - source: host.dir.staged
+  requirements:
+  - plugins.stockpile.app.requirements.paw_provenance:
+    - source: host.file.path
+  - plugins.stockpile.app.requirements.paw_provenance:
+    - source: host.dir.staged

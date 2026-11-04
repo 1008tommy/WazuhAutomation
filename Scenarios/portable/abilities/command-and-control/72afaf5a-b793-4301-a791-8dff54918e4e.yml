@@ -22,5 +22,5 @@
           } }; if ([System.IO.Directory]::Exists($dir) -and -not (Get-ChildItem -LiteralPath
           $dir -Force)) { [System.IO.Directory]::Delete($dir) }
         parsers:
-        - plugins.stockpile.app.parsers.basic:
+          plugins.stockpile.app.parsers.basic:
           - source: host.file.downloaded

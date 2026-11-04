@@ -36,7 +36,11 @@ def check():
         if ability_id in CLEANUP:
             assert executor["cleanup"].strip(), path
         if ability_id in PARSERS:
-            assert executor["parsers"][0]["plugins.stockpile.app.parsers.basic"][0]["source"] == PARSERS[ability_id], path
+            assert executor["parsers"]["plugins.stockpile.app.parsers.basic"][0]["source"] == PARSERS[ability_id], path
+        if ability_id == "50a40429-7a61-4a76-b8ff-600f3e7f8bff":
+            assert "requirements" not in executor, path
+            sources = [entry["plugins.stockpile.app.requirements.paw_provenance"][0]["source"] for entry in ability["requirements"]]
+            assert sources == ["host.file.path", "host.dir.staged"], path
         abilities[ability_id] = ability
     profiles = []
     referenced = set()

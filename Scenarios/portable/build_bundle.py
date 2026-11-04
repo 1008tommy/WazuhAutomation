@@ -72,12 +72,7 @@ def build():
             if "cleanup" in extras:
                 executor["cleanup"] = extras["cleanup"]
             if "parser" in extras:
-                executor["parsers"] = [{"plugins.stockpile.app.parsers.basic": [{"source": extras["parser"]}]}]
-            if "requirements" in extras:
-                executor["requirements"] = [
-                    {"plugins.stockpile.app.requirements.paw_provenance": [{"source": source}]}
-                    for source in extras["requirements"]
-                ]
+                executor["parsers"] = {"plugins.stockpile.app.parsers.basic": [{"source": extras["parser"]}]}
             ability = {
                 "id": ability_id,
                 "name": details["name"],
@@ -86,6 +81,11 @@ def build():
                 "technique": {"attack_id": details["technique_id"], "name": details["technique_name"]},
                 "platforms": {"windows": {"psh": executor}},
             }
+            if "requirements" in extras:
+                ability["requirements"] = [
+                    {"plugins.stockpile.app.requirements.paw_provenance": [{"source": source}]}
+                    for source in extras["requirements"]
+                ]
             write_yaml(ROOT / "abilities" / details["tactic"] / f"{ability_id}.yml", [ability])
             custom_ids.add(ability_id)
     assert len(all_ids) == 11 and len(custom_ids) == 9

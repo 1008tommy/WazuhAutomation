@@ -32,6 +32,15 @@ The active CALDERA configuration must list `stockpile` under `plugins:`. If the 
 
    The installer checks both folders before copying. It preserves tactic subfolders, skips identical files, and stops if an existing destination file differs. No `sudo` is needed when your account owns the CALDERA checkout.
 
+If you installed the first version of this bundle and CALDERA logs `TypeError: list indices must be integers or slices, not dict` while loading ability parsers, stop CALDERA and update the checkout:
+
+```bash
+git -C "$HOME/WazuhAutomation" pull --ff-only
+python3 "$HOME/WazuhAutomation/Scenarios/portable/install_bundle.py" --caldera-root "$HOME/caldera" --upgrade
+```
+
+The `--upgrade` option replaces only the four earlier ability files whose hashes match the first published bundle. It refuses to replace files that were edited independently. Restart CALDERA afterward; the adversary profiles do not need to be imported again.
+
 3. Confirm the two Stockpile ability IDs listed above exist on that CALDERA server. If they do not, check the Stockpile version before running Thief-Lab.
 4. Restart CALDERA. Verify the four adversary profiles list the expected ability names and that each ability's Windows `psh` executor has the command, parser, requirement, and cleanup shown in its bundle file.
 5. On the isolated Windows test VM, create `C:\BASLab`. For Thief-Lab, place exactly one synthetic `.txt` file in `C:\BASLab\input` and add the starting fact `file.sensitive.extension = txt` to the operation's fact source. The other three profiles do not require a starting fact. Run one profile at a time with the atomic planner, cleanup enabled, and a Windows agent that supports `psh`.

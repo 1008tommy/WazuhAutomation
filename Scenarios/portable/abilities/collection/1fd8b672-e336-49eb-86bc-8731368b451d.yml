@@ -15,5 +15,5 @@
           '
         timeout: 60
         parsers:
-        - plugins.stockpile.app.parsers.basic:
+          plugins.stockpile.app.parsers.basic:
           - source: host.file.path
