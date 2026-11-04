@@ -1,5 +1,5 @@
-- id: d8dbc446fea6514a712803194b10cb75
-  name: Security Software Discovery - Windows Defender Enumeration
+- id: 84ec1290-e830-4ae2-b7b6-16adc609c23d
+  name: Lab Windows Defender Enumeration
   description: Windows BAS lab ability for Discovery Scenario
   tactic: discovery
   technique:

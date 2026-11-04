@@ -18,7 +18,7 @@ These five profiles simulate small, repeatable techniques on an isolated Windows
 **Before running:**
 
 - Confirm the agent supports both `cmd` and `psh`, and that Windows Defender cmdlets are available for the final ability. No starting fact source or payload is needed.
-- If the Defender ability was imported separately from Atomic, remove its `plugins.atomic.app.parsers.atomic_powershell` parser before running. That parser can mark ordinary PowerShell output as a failure. The portable bundle's Defender ability has no parser.
+- Use the portable bundle's **Lab Windows Defender Enumeration** ability for the final step. It is a separate copy with no Atomic PowerShell parser, so changing it does not change the pre-made Atomic ability used by other profiles. The original UI export above records the ability ID used in the earlier test; importing that export alone still references the shared pre-made ability.
 
 ## Scheduled Task Creation
 

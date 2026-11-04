@@ -19,6 +19,16 @@ PREVIOUS_ABILITY_HASHES = {
     "50a40429-7a61-4a76-b8ff-600f3e7f8bff.yml": "6d15ea3420a3e83bece9df34d45cfc3efc04e49bcfd17b0269a8aa6a4d34931e",
     "72afaf5a-b793-4301-a791-8dff54918e4e.yml": "cf6a9f1f68ccbc489b64348bc0e386bda6fb4c5c14c0b3322d8b2d23baa993fb",
 }
+# Accept the published Git bytes (LF) and Windows checkout bytes (CRLF).
+DISCOVERY_PROFILE_HASHES = {
+    "6ba32f690d2915ffc4301f07d8f60569046d58392c0f287a92a561914c12728e",
+    "ede1dbb3504abefe1fd3ebc97d3e0bf05ab49b9604d61641fe3ac962a2dbee74",
+}
+OLD_DEFENDER_ABILITY = "d8dbc446fea6514a712803194b10cb75.yml"
+OLD_DEFENDER_HASHES = {
+    "820fe3b093ef89ef614cfff03a150e307d886ee3232874d1fc4f7dcf12133b1a",
+    "5f8a7cbb025e6f51324c23a4f595036567e97d620fe1656eaf70055fa1e2b976",
+}
 
 
 def install(caldera_root, upgrade=False):
@@ -49,6 +59,13 @@ def install(caldera_root, upgrade=False):
 
     conflicts = []
     replacements = set()
+    obsolete = root / "data" / "abilities" / "discovery" / OLD_DEFENDER_ABILITY
+    remove_obsolete = False
+    if upgrade and obsolete.exists():
+        if obsolete.is_file() and hashlib.sha256(obsolete.read_bytes()).hexdigest() in OLD_DEFENDER_HASHES:
+            remove_obsolete = True
+        else:
+            conflicts.append(obsolete)
     for source, destination in transfers:
         if not destination.exists():
             continue
@@ -59,7 +76,9 @@ def install(caldera_root, upgrade=False):
         if current_bytes == source.read_bytes():
             continue
         previous_hash = PREVIOUS_ABILITY_HASHES.get(destination.name)
-        if upgrade and previous_hash and hashlib.sha256(current_bytes).hexdigest() == previous_hash:
+        current_hash = hashlib.sha256(current_bytes).hexdigest()
+        published_profile = destination.name == "c6946236-d4e4-4e4f-8dc7-433c84a702a3.yml" and current_hash in DISCOVERY_PROFILE_HASHES
+        if upgrade and ((previous_hash and current_hash == previous_hash) or published_profile):
             replacements.add(destination)
         else:
             conflicts.append(destination)
@@ -80,8 +99,10 @@ def install(caldera_root, upgrade=False):
         shutil.copy2(source, destination)
         copied += 1
     matched = len(transfers) - copied - replaced
+    if remove_obsolete:
+        obsolete.unlink()
     noun = "file" if copied == 1 else "files"
-    print(f"Installed {copied} {noun}; updated {replaced} known earlier bundle files; {matched} already matched. Restart CALDERA and verify the five profiles.")
+    print(f"Installed {copied} {noun}; updated {replaced} known earlier bundle files; removed {int(remove_obsolete)} obsolete Defender ability; {matched} already matched. Restart CALDERA and verify the five profiles.")
 
 
 if __name__ == "__main__":
