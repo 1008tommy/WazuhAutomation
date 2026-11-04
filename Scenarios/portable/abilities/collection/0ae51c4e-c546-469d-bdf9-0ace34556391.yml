@@ -1,0 +1,27 @@
+- id: 0ae51c4e-c546-469d-bdf9-0ace34556391
+  name: Create BAS lab staging directory
+  description: Windows BAS lab ability for Thief-Lab
+  tactic: collection
+  technique:
+    attack_id: T1074.001
+    name: 'Data Staged: Local Data Staging'
+  platforms:
+    windows:
+      psh:
+        command: '$p = ''C:\BASLab\staged''; if (Test-Path -LiteralPath $p) { throw
+          ''BAS staging directory already exists'' }; (New-Item -ItemType Directory
+          -Path $p -ErrorAction Stop).FullName
+
+          '
+        timeout: 60
+        cleanup: $dir='C:\BASLab\staged'; $files=@(Get-ChildItem -LiteralPath 'C:\BASLab\input'
+          -File -Filter '*.#{file.sensitive.extension}' -ErrorAction Stop); if ($files.Count
+          -ne 1) { throw 'Expected exactly one synthetic file for cleanup' }; $copy=Join-Path
+          $dir $files[0].Name; if (Test-Path -LiteralPath $copy -PathType Leaf) {
+          Remove-Item -LiteralPath $copy -Force -ErrorAction Stop }; $archive='C:\BASLab\staged.zip';
+          if (Test-Path -LiteralPath $archive -PathType Leaf) { Remove-Item -LiteralPath
+          $archive -Force -ErrorAction Stop }; if (Test-Path -LiteralPath $dir -PathType
+          Container) { [System.IO.Directory]::Delete($dir) }
+        parsers:
+        - plugins.stockpile.app.parsers.basic:
+          - source: host.dir.staged

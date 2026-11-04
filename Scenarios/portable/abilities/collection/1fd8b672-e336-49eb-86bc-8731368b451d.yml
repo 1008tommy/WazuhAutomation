@@ -1,0 +1,19 @@
+- id: 1fd8b672-e336-49eb-86bc-8731368b451d
+  name: Find BAS lab file
+  description: Windows BAS lab ability for Thief-Lab
+  tactic: collection
+  technique:
+    attack_id: T1005
+    name: Data from Local System
+  platforms:
+    windows:
+      psh:
+        command: '$files = @(Get-ChildItem -LiteralPath ''C:\BASLab\input'' -File
+          -Filter ''*.#{file.sensitive.extension}'' -ErrorAction Stop); if ($files.Count
+          -ne 1) { throw ''Expected exactly one synthetic test file'' }; $files[0].FullName
+
+          '
+        timeout: 60
+        parsers:
+        - plugins.stockpile.app.parsers.basic:
+          - source: host.file.path

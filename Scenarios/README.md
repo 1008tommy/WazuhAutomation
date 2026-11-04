@@ -1,5 +1,8 @@
 # CALDERA lab scenarios
 
+For a separate CALDERA server, use the [portable bundle](portable/README.md),
+which includes ability definitions as well as the adversary profiles.
+
 These YAML files are CALDERA adversary exports for the isolated Windows BAS lab. The
 `atomic_ordering` entries list the abilities to run. The exports contain the
 execution commands but **do not contain the cleanup commands** configured on the

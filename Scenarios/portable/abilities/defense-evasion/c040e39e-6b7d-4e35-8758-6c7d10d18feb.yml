@@ -1,0 +1,19 @@
+- id: c040e39e-6b7d-4e35-8758-6c7d10d18feb
+  name: Run renamed lab utility
+  description: Windows BAS lab ability for Renamed Utility Lab
+  tactic: defense-evasion
+  technique:
+    attack_id: T1036.003
+    name: 'Masquerading: Rename System Utilities'
+  platforms:
+    windows:
+      psh:
+        command: '$exe=''C:\BASLab\masquerade-test\lab-helper.exe''; if (-not (Test-Path
+          -LiteralPath $exe -PathType Leaf)) { throw ''Renamed utility missing'' };
+          $item=Get-Item -LiteralPath $exe; Write-Output "File name: $($item.Name);
+          original name: $($item.VersionInfo.OriginalFilename)"; $result=& $exe; if
+          ($LASTEXITCODE -ne 0) { throw ''Renamed utility failed'' }; Write-Output
+          "Utility output: $result"
+
+          '
+        timeout: 60

@@ -1,0 +1,19 @@
+- id: 1aa870e8-06c7-4749-ba29-2831b310c51a
+  name: Run Lab Scheduled Task
+  description: Windows BAS lab ability for Scheduled Task Creation
+  tactic: execution
+  technique:
+    attack_id: T1053.005
+    name: 'Scheduled Task/Job: Scheduled Task'
+  platforms:
+    windows:
+      psh:
+        command: '$marker=''C:\BASLab\task-executed''; schtasks.exe /Run /TN "CALDERA-Lab-Test";
+          if ($LASTEXITCODE -ne 0) { throw ''Task did not start'' }; for ($i=0; $i
+          -lt 10 -and -not (Test-Path -LiteralPath $marker -PathType Container); $i++)
+          { Start-Sleep -Seconds 1 }; if (-not (Test-Path -LiteralPath $marker -PathType
+          Container)) { throw ''Task action not observed'' }; Write-Output "Task action
+          verified: $marker"
+
+          '
+        timeout: 60

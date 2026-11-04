@@ -1,0 +1,26 @@
+- id: 50a40429-7a61-4a76-b8ff-600f3e7f8bff
+  name: Stage BAS lab file
+  description: Windows BAS lab ability for Thief-Lab
+  tactic: collection
+  technique:
+    attack_id: T1074.001
+    name: 'Data Staged: Local Data Staging'
+  platforms:
+    windows:
+      psh:
+        command: '$ErrorActionPreference = ''Stop''; $source = ''#{host.file.path[filters(technique=T1005,max=1)]}'';
+          $dir = ''#{host.dir.staged[filters(max=1)]}''; if (-not (Test-Path -LiteralPath
+          $source -PathType Leaf)) { throw "Source file missing: $source" }; if (-not
+          (Test-Path -LiteralPath $dir -PathType Container)) { throw "Staging directory
+          missing: $dir" }; $target = Join-Path -Path $dir -ChildPath (Split-Path
+          -Path $source -Leaf); Copy-Item -LiteralPath $source -Destination $target
+          -ErrorAction Stop; if (-not (Test-Path -LiteralPath $target -PathType Leaf))
+          { throw "Staged file missing: $target" }; Write-Output $target
+
+          '
+        timeout: 60
+        requirements:
+        - plugins.stockpile.app.requirements.paw_provenance:
+          - source: host.file.path
+        - plugins.stockpile.app.requirements.paw_provenance:
+          - source: host.dir.staged

