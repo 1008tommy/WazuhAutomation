@@ -6,6 +6,7 @@ against the source CALDERA server before treating the bundle as an exact backup.
 """
 
 from pathlib import Path
+import re
 import yaml
 
 SCENARIOS = Path(__file__).resolve().parents[1]
@@ -77,7 +78,9 @@ def build():
                 raise ValueError(f"Expected one Windows psh executor for {ability_id}")
             command = executors[0]["command"]
             if ability_id == "72afaf5a-b793-4301-a791-8dff54918e4e":
-                command = command.replace("http://192.168.234.128:8888/file/download", "#{server}/file/download")
+                command, replacements = re.subn(r"https?://[^/\s'\"]+/file/download", "#{server}/file/download", command, count=1)
+                if replacements != 1:
+                    raise ValueError("Expected one CALDERA file-download URL")
             executor = {"command": command, "timeout": 60}
             extras = EXTRAS.get(ability_id, {})
             if "cleanup" in extras:
