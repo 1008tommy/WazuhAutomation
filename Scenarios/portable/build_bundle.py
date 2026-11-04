@@ -23,6 +23,11 @@ STOCKPILE_IDS = {
     "300157e5-f4ad-4569-b533-9d1fa0e74d74",  # Compress staged directory
     "ea713bc4-63f0-491c-9a6f-0b01d560b87e",  # Exfil staged directory
 }
+# Keep the exported profile as a record of the tested run, but give the
+# parser-free Defender variant its own ID in the portable installation.
+CLONED_IDS = {
+    "d8dbc446fea6514a712803194b10cb75": "84ec1290-e830-4ae2-b7b6-16adc609c23d",
+}
 EXTRAS = {
     "f0bb5f01-c06c-4f8e-8a27-475842661906": {
         "cleanup": "schtasks.exe /Query /TN 'CALDERA-Lab-Test' *> $null; if ($LASTEXITCODE -eq 0) { schtasks.exe /Delete /TN 'CALDERA-Lab-Test' /F; if ($LASTEXITCODE -ne 0) { throw 'Scheduled task deletion failed' } }; $marker='C:\\BASLab\\task-executed'; if (Test-Path -LiteralPath $marker -PathType Container) { [System.IO.Directory]::Delete($marker) }"
@@ -66,8 +71,9 @@ def build():
     for filename in EXPORTS:
         exported = yaml.safe_load((SCENARIOS / filename).read_text(encoding="utf-8"))
         profile = {key: exported[key] for key in ("id", "name", "description", "objective", "atomic_ordering")}
+        profile["atomic_ordering"] = [CLONED_IDS.get(ability_id, ability_id) for ability_id in profile["atomic_ordering"]]
         write_yaml(ROOT / "adversaries" / f"{profile['id']}.yml", profile)
-        for ability_id in profile["atomic_ordering"]:
+        for ability_id in exported["atomic_ordering"]:
             if ability_id in all_ids:
                 raise ValueError(f"Duplicate ability ID: {ability_id}")
             all_ids.add(ability_id)
@@ -92,9 +98,10 @@ def build():
                 executor["cleanup"] = extras["cleanup"]
             if "parser" in extras:
                 executor["parsers"] = {"plugins.stockpile.app.parsers.basic": [{"source": extras["parser"]}]}
+            portable_id = CLONED_IDS.get(ability_id, ability_id)
             ability = {
-                "id": ability_id,
-                "name": details["name"],
+                "id": portable_id,
+                "name": "Lab Windows Defender Enumeration" if ability_id in CLONED_IDS else details["name"],
                 "description": f"Windows BAS lab ability for {profile['name']}",
                 "tactic": details["tactic"],
                 "technique": {"attack_id": details["technique_id"], "name": details["technique_name"]},
@@ -105,8 +112,8 @@ def build():
                     {"plugins.stockpile.app.requirements.paw_provenance": [{"source": source}]}
                     for source in extras["requirements"]
                 ]
-            write_yaml(ROOT / "abilities" / details["tactic"] / f"{ability_id}.yml", [ability])
-            custom_ids.add(ability_id)
+            write_yaml(ROOT / "abilities" / details["tactic"] / f"{portable_id}.yml", [ability])
+            custom_ids.add(portable_id)
     assert len(all_ids) == 17 and len(custom_ids) == 15
     print(f"Built {len(custom_ids)} custom abilities, {len(EXPORTS)} adversaries, and 1 fact source")
 

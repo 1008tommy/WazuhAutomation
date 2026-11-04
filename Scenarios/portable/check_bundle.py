@@ -39,7 +39,7 @@ def check():
             assert executor["cleanup"].strip(), path
         if ability_id in PARSERS:
             assert executor["parsers"]["plugins.stockpile.app.parsers.basic"][0]["source"] == PARSERS[ability_id], path
-        if ability_id == "d8dbc446fea6514a712803194b10cb75":
+        if ability_id == "84ec1290-e830-4ae2-b7b6-16adc609c23d":
             assert "parsers" not in executor, path
         if ability_id == "50a40429-7a61-4a76-b8ff-600f3e7f8bff":
             assert "requirements" not in executor, path
@@ -57,6 +57,8 @@ def check():
         profiles.append(profile)
     assert len(profiles) == 5, len(profiles)
     assert len(abilities) == 15, len(abilities)
+    assert "d8dbc446fea6514a712803194b10cb75" not in referenced | set(abilities)
+    assert "84ec1290-e830-4ae2-b7b6-16adc609c23d" in referenced & set(abilities)
     assert referenced == set(abilities) | STOCKPILE_IDS, sorted(referenced ^ (set(abilities) | STOCKPILE_IDS))
     assert (ROOT.parent / "required-payloads" / "lab-note.ps1").is_file()
     sources = list((ROOT / "sources").glob("*.yml"))
