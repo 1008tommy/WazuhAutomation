@@ -2,6 +2,16 @@
 
 This bundle lets a teammate recreate the four Windows lab profiles on a separate CALDERA 5.x server. It contains four adversary files, nine custom ability files, and uses the versioned `../required-payloads/lab-note.ps1`. The two remaining Thief-Lab abilities (`300157e5-...` and `ea713bc4-...`) are supplied by the Stockpile plugin.
 
+Stockpile is a core CALDERA plugin that supplies abilities, parsers, requirements, facts, and the atomic planner used by these profiles. This bundle requires it; the `install_bundle.py` script checks that its directory exists. On a Git checkout of CALDERA, check and initialize the pinned submodule before installing the bundle:
+
+```bash
+cd "$HOME/caldera"
+test -f plugins/stockpile/hook.py && echo 'Stockpile files present' || git submodule update --init plugins/stockpile
+grep -n 'stockpile' conf/local.yml conf/default.yml 2>/dev/null
+```
+
+The active CALDERA configuration must list `stockpile` under `plugins:`. If the files are present but Stockpile is not enabled, edit the active configuration while CALDERA is stopped, then restart it. If this is a Docker or packaged installation rather than a Git checkout, install/enable Stockpile using that installation's plugin procedure; do not run the submodule command against a non-Git directory.
+
 **Provenance:** the ability files were reconstructed from the adversary UI exports in `Scenarios/` plus the parser and cleanup settings documented in `Scenarios/README.md`. They are not a byte-for-byte backup of the original server's `data/abilities` files. Compare them with those files if an exact migration is required. The original adversary exports are kept unchanged.
 
 ## Install on a test CALDERA server
@@ -22,7 +32,7 @@ This bundle lets a teammate recreate the four Windows lab profiles on a separate
 
    The installer checks both folders before copying. It preserves tactic subfolders, skips identical files, and stops if an existing destination file differs. No `sudo` is needed when your account owns the CALDERA checkout.
 
-3. Confirm the two Stockpile ability IDs listed above exist on that CALDERA server. If they do not, install a compatible Stockpile version before running Thief-Lab.
+3. Confirm the two Stockpile ability IDs listed above exist on that CALDERA server. If they do not, check the Stockpile version before running Thief-Lab.
 4. Restart CALDERA. Verify the four adversary profiles list the expected ability names and that each ability's Windows `psh` executor has the command, parser, requirement, and cleanup shown in its bundle file.
 5. On the isolated Windows test VM, create `C:\BASLab`. For Thief-Lab, place exactly one synthetic `.txt` file in `C:\BASLab\input` and add the starting fact `file.sensitive.extension = txt` to the operation's fact source. The other three profiles do not require a starting fact. Run one profile at a time with the atomic planner, cleanup enabled, and a Windows agent that supports `psh`.
 

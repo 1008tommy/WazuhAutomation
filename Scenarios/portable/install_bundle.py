@@ -13,8 +13,14 @@ SCENARIOS = HERE.parent
 
 def install(caldera_root):
     root = caldera_root.expanduser().resolve()
-    if not (root / "app").is_dir() or not (root / "plugins" / "stockpile").is_dir():
-        raise SystemExit(f"Not a CALDERA checkout with Stockpile: {root}")
+    if not (root / "app").is_dir():
+        raise SystemExit(f"Not a CALDERA checkout: {root}")
+    if not (root / "plugins" / "stockpile" / "hook.py").is_file():
+        raise SystemExit(
+            f"Stockpile is missing from {root / 'plugins' / 'stockpile'}. "
+            "If this is a Git checkout, run 'git submodule update --init plugins/stockpile' "
+            "from the CALDERA root, then ensure stockpile is enabled in the active config."
+        )
 
     ability_files = sorted((HERE / "abilities").rglob("*.yml"))
     adversary_files = sorted((HERE / "adversaries").glob("*.yml"))
