@@ -6,16 +6,21 @@ This bundle lets a teammate recreate the four Windows lab profiles on a separate
 
 ## Install on a test CALDERA server
 
-1. Clone this branch on the CALDERA server. Use a fresh CALDERA installation with Stockpile enabled. Stop CALDERA before copying data files.
-2. From the repository root, use the commands below, replacing `/path/to/caldera` with the installation path. They preserve the tactic subfolders and refuse to replace existing files. If any destination file already exists, compare its ID and contents before proceeding.
+1. Use a fresh CALDERA installation with Stockpile enabled. Stop CALDERA before copying data files. From the CALDERA server's shell, clone the scenario branch **outside** the `~/caldera` directory:
 
    ```bash
-   CALDERA_ROOT=/path/to/caldera
-   mkdir -p "$CALDERA_ROOT/data/abilities" "$CALDERA_ROOT/data/adversaries" "$CALDERA_ROOT/plugins/stockpile/payloads"
-   cp -R -n Scenarios/portable/abilities/. "$CALDERA_ROOT/data/abilities/"
-   cp -n Scenarios/portable/adversaries/*.yml "$CALDERA_ROOT/data/adversaries/"
-   cp -n Scenarios/required-payloads/lab-note.ps1 "$CALDERA_ROOT/plugins/stockpile/payloads/lab-note.ps1"
+   git clone --branch caldera-portable-lab-bundle --single-branch https://github.com/1008tommy/WazuhAutomation.git "$HOME/WazuhAutomation"
    ```
+
+   If `~/WazuhAutomation` already exists, update that checkout to this branch instead of cloning over it.
+
+2. If your CALDERA checkout is `~/caldera`, run this command from any directory:
+
+   ```bash
+   python "$HOME/WazuhAutomation/Scenarios/portable/install_bundle.py" --caldera-root "$HOME/caldera"
+   ```
+
+   The installer checks both folders before copying. It preserves tactic subfolders, skips identical files, and stops if an existing destination file differs. No `sudo` is needed when your account owns the CALDERA checkout.
 
 3. Confirm the two Stockpile ability IDs listed above exist on that CALDERA server. If they do not, install a compatible Stockpile version before running Thief-Lab.
 4. Restart CALDERA. Verify the four adversary profiles list the expected ability names and that each ability's Windows `psh` executor has the command, parser, requirement, and cleanup shown in its bundle file.
