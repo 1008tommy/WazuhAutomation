@@ -24,6 +24,16 @@ def normalize(value):
 def valid_pid(value):
     return str(value).isdigit() and int(value) > 0
 
+def output_reports_file(output, target_path):
+    """Require a complete target path in successful command output."""
+    if not isinstance(output, dict) or not target_path:
+        return False
+    stdout, target = normalize(output.get("stdout", "")), normalize(target_path)
+    if not stdout or not target:
+        return False
+    return re.search(r'(?<![\w\\])' + re.escape(target) + r'(?![\w.\\])',
+                     stdout, re.IGNORECASE) is not None
+
 def schtasks_option(command, option):
     match = re.search(r'(?i)(?<!\S)' + re.escape(option) + r'\s+(?:"([^"]+)"|(\S+))', command)
     return (match.group(1) or match.group(2)) if match else None
@@ -128,11 +138,14 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 output = step.get("output")
                 output_path = output.get("stdout", "") if isinstance(output, dict) else ""
                 target_path = ev.get("targetFilename", "")
-                if (step.get("attack", {}).get("technique_id") == "T1105"
-                    and step.get("status") == 0
-                    and output_path and target_path
-                    and normalize(output_path).casefold() == normalize(target_path).casefold()
-                    and str(ev.get("processId")) == str(pid)):
+                technique = step.get("attack", {}).get("technique_id")
+                exact_download_path = (technique == "T1105" and output_path and target_path
+                                       and normalize(output_path).casefold() == normalize(target_path).casefold())
+                reported_staged_path = (technique == "T1036.003"
+                                        and re.search(r'(?i)\bCopy-Item\b.*\s-Destination\b', command)
+                                        and output_reports_file(output, target_path))
+                if (step.get("status") == 0 and str(ev.get("processId")) == str(pid)
+                    and (exact_download_path or reported_staged_path)):
                     relation = "file_created_by_executor"
             task_action = task_actions.get(si)
             if event_id == "1" and relation is None and task_action:
@@ -203,7 +216,9 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
         if ambiguous:
             notes.append("At least one alert also matches another step; review required.")
         if any(e["relation"] == "file_created_by_executor" for e in evidence):
-            notes.append("Matched file creation confirms the output file was written by the executor; it does not prove the transfer source or technique-specific recognition.")
+            notes.append("Matched file creation confirms the reported file was written by the executor; it does not prove technique-specific recognition.")
+            if step.get("attack", {}).get("technique_id") == "T1105":
+                notes.append("File creation alone does not prove the transfer source.")
         rows.append({
             "operation_name": report.get("name"),
             "link_id": step.get("link_id"),
@@ -229,7 +244,7 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
         })
     return {
         "schema_version": "0.1",
-        "matcher_scope": "Sysmon process creation for executor, direct child, or scheduled-task action, plus exact T1105 output-file creation; offline prototype",
+        "matcher_scope": "Sysmon process creation for executor, direct child, or scheduled-task action, plus reported T1105 and T1036.003 file creation; offline prototype",
         "window_seconds": window_seconds,
         "collection_window": {"start": collected["start"], "end": collected["end"]},
         "limitations": [
@@ -259,7 +274,7 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
             adapted = dict(archives, alerts=archives.get("events"), alert_count=archives.get("event_count"))
             archive_result = _match_records(report, adapted, agent_id, window_seconds, host_filter)
     result["schema_version"] = "0.4"
-    result["matcher_scope"] = "Sysmon process creation for executor, direct child, or scheduled-task action, plus exact T1105 output-file creation; alerts and archives matched separately"
+    result["matcher_scope"] = "Sysmon process creation for executor, direct child, or scheduled-task action, plus reported T1105 and T1036.003 file creation; alerts and archives matched separately"
     result["archive_collection_status"] = archive_status
     result["archive_collection_error"] = archives.get("error") if archives else None
     result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []
