@@ -1,6 +1,6 @@
 {
-  "caldera_url": "http://192.168.121.11:8888",
-  "wazuh_host": "192.168.121.10",
+  "caldera_url": "http://(Whatever your IP address for the CALDERA server is):8888",
+  "wazuh_host": "(Whatever your IP address for the Wazuh server is)",
   "wazuh_port": 22,
   "wazuh_user": "labadmin",
   "windows_host": "WIN11-TEST01",
