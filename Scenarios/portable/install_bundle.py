@@ -34,8 +34,9 @@ def install(caldera_root, upgrade=False):
 
     ability_files = sorted((HERE / "abilities").rglob("*.yml"))
     adversary_files = sorted((HERE / "adversaries").glob("*.yml"))
+    source_files = sorted((HERE / "sources").glob("*.yml"))
     payload = SCENARIOS / "required-payloads" / "lab-note.ps1"
-    if len(ability_files) != 9 or len(adversary_files) != 4 or not payload.is_file():
+    if len(ability_files) != 9 or len(adversary_files) != 4 or len(source_files) != 1 or not payload.is_file():
         raise SystemExit("Bundle is incomplete; check that the correct branch was cloned")
 
     transfers = [
@@ -43,6 +44,7 @@ def install(caldera_root, upgrade=False):
         for path in ability_files
     ]
     transfers += [(path, root / "data" / "adversaries" / path.name) for path in adversary_files]
+    transfers += [(path, root / "data" / "sources" / path.name) for path in source_files]
     transfers.append((payload, root / "plugins" / "stockpile" / "payloads" / payload.name))
 
     conflicts = []
@@ -78,7 +80,8 @@ def install(caldera_root, upgrade=False):
         shutil.copy2(source, destination)
         copied += 1
     matched = len(transfers) - copied - replaced
-    print(f"Installed {copied} files; updated {replaced} known earlier bundle files; {matched} already matched. Restart CALDERA and verify the four profiles.")
+    noun = "file" if copied == 1 else "files"
+    print(f"Installed {copied} {noun}; updated {replaced} known earlier bundle files; {matched} already matched. Restart CALDERA and verify the four profiles.")
 
 
 if __name__ == "__main__":

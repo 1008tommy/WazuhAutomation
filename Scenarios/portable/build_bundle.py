@@ -10,6 +10,7 @@ import yaml
 
 SCENARIOS = Path(__file__).resolve().parents[1]
 ROOT = Path(__file__).resolve().parent
+THIEF_SOURCE_ID = "94ec2647-e6f5-468d-93a5-557e3671b97a"
 EXPORTS = (
     "Scheduled Task Creation.yaml",
     "Renamed Utility Lab.yaml",
@@ -48,6 +49,16 @@ def write_yaml(path, value):
 
 
 def build():
+    write_yaml(
+        ROOT / "sources" / f"{THIEF_SOURCE_ID}.yml",
+        {
+            "id": THIEF_SOURCE_ID,
+            "name": "Thief-Lab",
+            "facts": [{"trait": "file.sensitive.extension", "value": "txt", "score": 11}],
+            "rules": [],
+            "relationships": [],
+        },
+    )
     all_ids = set()
     custom_ids = set()
     for filename in EXPORTS:
@@ -89,7 +100,7 @@ def build():
             write_yaml(ROOT / "abilities" / details["tactic"] / f"{ability_id}.yml", [ability])
             custom_ids.add(ability_id)
     assert len(all_ids) == 11 and len(custom_ids) == 9
-    print(f"Built {len(custom_ids)} custom abilities and {len(EXPORTS)} adversaries")
+    print(f"Built {len(custom_ids)} custom abilities, {len(EXPORTS)} adversaries, and 1 fact source")
 
 
 if __name__ == "__main__":

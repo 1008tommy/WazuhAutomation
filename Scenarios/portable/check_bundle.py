@@ -55,9 +55,16 @@ def check():
     assert len(abilities) == 9, len(abilities)
     assert referenced == set(abilities) | STOCKPILE_IDS, sorted(referenced ^ (set(abilities) | STOCKPILE_IDS))
     assert (ROOT.parent / "required-payloads" / "lab-note.ps1").is_file()
+    sources = list((ROOT / "sources").glob("*.yml"))
+    assert len(sources) == 1, sources
+    source = yaml.safe_load(sources[0].read_text(encoding="utf-8"))
+    assert source["id"] == sources[0].stem
+    assert source["name"] == "Thief-Lab"
+    assert source["facts"] == [{"trait": "file.sensitive.extension", "value": "txt", "score": 11}]
+    assert source["rules"] == [] and source["relationships"] == []
     delivery = abilities["72afaf5a-b793-4301-a791-8dff54918e4e"]["platforms"]["windows"]["psh"]["command"]
     assert "#{server}/file/download" in delivery
-    print(f"OK: {len(profiles)} adversaries, {len(abilities)} custom abilities, 2 Stockpile dependencies, payload present")
+    print(f"OK: {len(profiles)} adversaries, {len(abilities)} custom abilities, 1 fact source, 2 Stockpile dependencies, payload present")
 
 
 if __name__ == "__main__":
