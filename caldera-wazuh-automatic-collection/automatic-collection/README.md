@@ -8,13 +8,13 @@ This version replaces manual report downloads, alert export, SCP, and time entry
 
     python -m pip install -r requirements.txt
 
-3. Check config.json. Defaults reflect the existing lab:
-   - CALDERA: http://192.168.134.131:8888
-   - Wazuh SSH: test@192.168.134.133, port 22
-   - Windows hostname: Test; Wazuh agent ID: "001" (keep quotation marks)
+3. Copy config.example.json to config.json in the same folder, then set your own lab's values in config.json. config.json is gitignored, so each user keeps their own:
+   - CALDERA: http://(Whatever your IP address for the CALDERA server is):8888
+   - Wazuh SSH: labadmin@(Whatever your IP address for the Wazuh server is), port 22
+   - Windows hostname: WIN11-TEST01; Wazuh agent ID: "001" (keep quotation marks)
 4. This Windows account must already trust the Wazuh SSH host key. You previously connected via SSH; if using a different Windows account, first connect:
 
-    ssh test@192.168.134.133
+    ssh labadmin@(Whatever your IP address for the Wazuh server is)
 
    Verify the server fingerprint against the Ubuntu VM before accepting a new key. On Ubuntu, display it with:
 

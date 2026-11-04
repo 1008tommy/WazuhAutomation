@@ -129,12 +129,12 @@ For this lab, run the following in Windows PowerShell from the GitHub repository
 root (not from the Ubuntu terminal):
 
 ```powershell
-scp ".\Scenarios\required-payloads\lab-note.ps1" test@192.168.234.128:/home/test/caldera/plugins/stockpile/payloads/lab-note.ps1
+scp ".\Scenarios\required-payloads\lab-note.ps1" test@(Whatever your IP address for the CALDERA server is):/home/test/caldera/plugins/stockpile/payloads/lab-note.ps1
 ```
 
 On the CALDERA Ubuntu VM, verify the copy with
 `cat /home/test/caldera/plugins/stockpile/payloads/lab-note.ps1`. The exported
-download command points to `http://192.168.234.128:8888/file/download`; update
+download command points to `http://(Whatever your IP address for the CALDERA server is):8888/file/download`; update
 that URL in the ability if the CALDERA server address changes. The Windows VM
 must be able to reach that address.
 
