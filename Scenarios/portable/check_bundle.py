@@ -30,13 +30,17 @@ def check():
         ability_id = ability["id"]
         assert ability_id == path.stem and ability_id not in abilities, path
         assert path.parent.name == ability["tactic"], path
-        executor = ability["platforms"]["windows"]["psh"]
+        executors = ability["platforms"]["windows"]
+        assert len(executors) == 1 and next(iter(executors)) in {"psh", "cmd"}, path
+        executor = next(iter(executors.values()))
         assert executor["command"].strip(), path
         assert ability["technique"]["attack_id"], path
         if ability_id in CLEANUP:
             assert executor["cleanup"].strip(), path
         if ability_id in PARSERS:
             assert executor["parsers"]["plugins.stockpile.app.parsers.basic"][0]["source"] == PARSERS[ability_id], path
+        if ability_id == "d8dbc446fea6514a712803194b10cb75":
+            assert "parsers" not in executor, path
         if ability_id == "50a40429-7a61-4a76-b8ff-600f3e7f8bff":
             assert "requirements" not in executor, path
             sources = [entry["plugins.stockpile.app.requirements.paw_provenance"][0]["source"] for entry in ability["requirements"]]
@@ -51,8 +55,8 @@ def check():
         assert len(profile["atomic_ordering"]) == len(set(profile["atomic_ordering"])), path
         referenced.update(profile["atomic_ordering"])
         profiles.append(profile)
-    assert len(profiles) == 4, len(profiles)
-    assert len(abilities) == 9, len(abilities)
+    assert len(profiles) == 5, len(profiles)
+    assert len(abilities) == 15, len(abilities)
     assert referenced == set(abilities) | STOCKPILE_IDS, sorted(referenced ^ (set(abilities) | STOCKPILE_IDS))
     assert (ROOT.parent / "required-payloads" / "lab-note.ps1").is_file()
     sources = list((ROOT / "sources").glob("*.yml"))

@@ -1,13 +1,24 @@
 # CALDERA lab scenarios
 
-These four profiles simulate small, repeatable techniques on an isolated Windows test VM. The YAML files in this folder are adversary exports. For another CALDERA server, install the [portable bundle](portable/README.md), which includes the ability definitions, the Thief-Lab fact source, and the required script payload.
+These five profiles simulate small, repeatable techniques on an isolated Windows test VM. The YAML files in this folder are adversary exports. For another CALDERA server, install the [portable bundle](portable/README.md), which includes the ability definitions, the Thief-Lab fact source, and the required script payload.
 
 ## Before any scenario
 
-- Use a Windows lab VM with an active CALDERA agent that supports the PowerShell (`psh`) executor.
+- Use a Windows lab VM with an active CALDERA agent that supports PowerShell (`psh`) and command prompt (`cmd`) executors.
 - Ensure `C:\BASLab` exists on the VM. Use synthetic test data only.
 - If measuring Wazuh detection, confirm that Sysmon and the Wazuh agent are collecting events from this VM.
 - Start each operation with the intended Windows agent group and the atomic planner. Check each scenario's specific setup below.
+
+## Discovery Scenario
+
+**Profile:** [Discovery Scenario.yaml](Discovery%20Scenario.yaml)
+
+**What it does:** Runs six read-only Windows discovery abilities in order: current user (T1033), operating system (T1082), running processes (T1057), network configuration (T1016), services (T1007), and Windows Defender status and threat history (T1518.001). It creates no lab artifacts.
+
+**Before running:**
+
+- Confirm the agent supports both `cmd` and `psh`, and that Windows Defender cmdlets are available for the final ability. No starting fact source or payload is needed.
+- If the Defender ability was imported separately from Atomic, remove its `plugins.atomic.app.parsers.atomic_powershell` parser before running. That parser can mark ordinary PowerShell output as a failure. The portable bundle's Defender ability has no parser.
 
 ## Scheduled Task Creation
 

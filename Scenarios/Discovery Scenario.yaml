@@ -1,0 +1,72 @@
+id: c6946236-d4e4-4e4f-8dc7-433c84a702a3
+name: Discovery Scenario
+description: ---
+objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+atomic_ordering:
+- 1aebbd43152842aca40fef4f930a5d1e
+- c345ff14-1aa4-4283-9660-4c57c42fee86
+- f8de05d1741dcc468f772ab0ff4dac72
+- 7d8ee68f0e9731db82964f558f614608
+- a6bff7612c9f5dec9c44574181feac26
+- d8dbc446fea6514a712803194b10cb75
+abilities:
+ 1aebbd43152842aca40fef4f930a5d1e:
+  name:  User Discovery - whoami
+  tactic:  discovery
+  technique_name:  "System Owner/User Discovery"
+  technique_id:  T1033
+  executors:
+   - cmd:
+     platform: windows
+     command: |
+       whoami /all
+ c345ff14-1aa4-4283-9660-4c57c42fee86:
+  name:  OS Discovery - Display System Information
+  tactic:  discovery
+  technique_name:  "System Information Discovery"
+  technique_id:  T1082
+  executors:
+   - psh:
+     platform: windows
+     command: |
+       $ErrorActionPreference = 'Stop'; Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, ServicePackMajorVersion, OSArchitecture, CSName, WindowsDirectory | Format-List
+ f8de05d1741dcc468f772ab0ff4dac72:
+  name:  Process Discovery - tasklist
+  tactic:  discovery
+  technique_name:  "Process Discovery"
+  technique_id:  T1057
+  executors:
+   - cmd:
+     platform: windows
+     command: |
+       tasklist
+ 7d8ee68f0e9731db82964f558f614608:
+  name:  System Network Configuration Discovery on Windows
+  tactic:  discovery
+  technique_name:  "System Network Configuration Discovery"
+  technique_id:  T1016
+  executors:
+   - cmd:
+     platform: windows
+     command: |
+       ipconfig /all && netsh interface show interface && arp -a && nbtstat -n && net config
+ a6bff7612c9f5dec9c44574181feac26:
+  name:  Get-Service Execution
+  tactic:  discovery
+  technique_name:  "System Service Discovery"
+  technique_id:  T1007
+  executors:
+   - cmd:
+     platform: windows
+     command: |
+       powershell.exe Get-Service
+ d8dbc446fea6514a712803194b10cb75:
+  name:  Security Software Discovery - Windows Defender Enumeration
+  tactic:  discovery
+  technique_name:  "Software Discovery: Security Software Discovery"
+  technique_id:  T1518.001
+  executors:
+   - psh:
+     platform: windows
+     command: |
+       Get-Service WinDefend; Get-MpComputerStatus; Get-MpThreat
