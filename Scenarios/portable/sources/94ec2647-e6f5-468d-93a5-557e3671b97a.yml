@@ -1,0 +1,8 @@
+id: 94ec2647-e6f5-468d-93a5-557e3671b97a
+name: Thief-Lab
+facts:
+- trait: file.sensitive.extension
+  value: txt
+  score: 11
+rules: []
+relationships: []

@@ -1,0 +1,22 @@
+- id: 1ff3f71b-ccc1-4f39-8045-0dbb8359e6b0
+  name: Stage renamed lab utility
+  description: Windows BAS lab ability for Renamed Utility Lab
+  tactic: defense-evasion
+  technique:
+    attack_id: T1036.003
+    name: 'Masquerading: Rename System Utilities'
+  platforms:
+    windows:
+      psh:
+        command: '$dir=''C:\BASLab\masquerade-test''; $dst=Join-Path $dir ''lab-helper.exe'';
+          if (Test-Path -LiteralPath $dir) { throw ''Previous lab directory exists''
+          }; New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null;
+          Copy-Item -LiteralPath ''C:\Windows\System32\whoami.exe'' -Destination $dst
+          -ErrorAction Stop; Get-Item -LiteralPath $dst | Select-Object FullName,Length
+
+          '
+        timeout: 60
+        cleanup: $dir='C:\BASLab\masquerade-test'; $file=Join-Path $dir 'lab-helper.exe';
+          if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath
+          $file -Force -ErrorAction Stop }; if (Test-Path -LiteralPath $dir -PathType
+          Container) { [System.IO.Directory]::Delete($dir) }

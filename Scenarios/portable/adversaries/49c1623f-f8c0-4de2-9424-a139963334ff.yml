@@ -1,0 +1,7 @@
+id: 49c1623f-f8c0-4de2-9424-a139963334ff
+name: File Delivery and Execution Lab
+description: '---'
+objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+atomic_ordering:
+- 72afaf5a-b793-4301-a791-8dff54918e4e
+- fdb00a3e-65aa-42b4-be44-75a8d0440596

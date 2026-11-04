@@ -1,0 +1,10 @@
+id: 33906e88-8a4a-4b7a-a29d-c2b30d05d7e6
+name: Thief-Lab
+description: Collect and upload one synthetic BAS test file to the lab CALDERA server
+objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+atomic_ordering:
+- 0ae51c4e-c546-469d-bdf9-0ace34556391
+- 1fd8b672-e336-49eb-86bc-8731368b451d
+- 50a40429-7a61-4a76-b8ff-600f3e7f8bff
+- 300157e5-f4ad-4569-b533-9d1fa0e74d74
+- ea713bc4-63f0-491c-9a6f-0b01d560b87e

@@ -1,0 +1,20 @@
+- id: f0bb5f01-c06c-4f8e-8a27-475842661906
+  name: Lab Scheduled Task Creation
+  description: Windows BAS lab ability for Scheduled Task Creation
+  tactic: persistence
+  technique:
+    attack_id: T1053.005
+    name: 'Scheduled Task/Job: Scheduled Task'
+  platforms:
+    windows:
+      psh:
+        command: 'schtasks.exe /Create /TN "CALDERA-Lab-Test" /TR "C:\Windows\System32\cmd.exe
+          /c mkdir C:\BASLab\task-executed" /SC ONLOGON
+
+          '
+        timeout: 60
+        cleanup: schtasks.exe /Query /TN 'CALDERA-Lab-Test' *> $null; if ($LASTEXITCODE
+          -eq 0) { schtasks.exe /Delete /TN 'CALDERA-Lab-Test' /F; if ($LASTEXITCODE
+          -ne 0) { throw 'Scheduled task deletion failed' } }; $marker='C:\BASLab\task-executed';
+          if (Test-Path -LiteralPath $marker -PathType Container) { [System.IO.Directory]::Delete($marker)
+          }
