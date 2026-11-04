@@ -1,0 +1,14 @@
+- id: a6bff7612c9f5dec9c44574181feac26
+  name: Get-Service Execution
+  description: Windows BAS lab ability for Discovery Scenario
+  tactic: discovery
+  technique:
+    attack_id: T1007
+    name: System Service Discovery
+  platforms:
+    windows:
+      cmd:
+        command: 'powershell.exe Get-Service
+
+          '
+        timeout: 60

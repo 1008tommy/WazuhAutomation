@@ -1,0 +1,16 @@
+- id: c345ff14-1aa4-4283-9660-4c57c42fee86
+  name: OS Discovery - Display System Information
+  description: Windows BAS lab ability for Discovery Scenario
+  tactic: discovery
+  technique:
+    attack_id: T1082
+    name: System Information Discovery
+  platforms:
+    windows:
+      psh:
+        command: '$ErrorActionPreference = ''Stop''; Get-CimInstance Win32_OperatingSystem
+          | Select-Object Caption, Version, ServicePackMajorVersion, OSArchitecture,
+          CSName, WindowsDirectory | Format-List
+
+          '
+        timeout: 60

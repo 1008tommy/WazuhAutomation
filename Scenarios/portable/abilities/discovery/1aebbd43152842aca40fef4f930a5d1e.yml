@@ -1,0 +1,14 @@
+- id: 1aebbd43152842aca40fef4f930a5d1e
+  name: User Discovery - whoami
+  description: Windows BAS lab ability for Discovery Scenario
+  tactic: discovery
+  technique:
+    attack_id: T1033
+    name: System Owner/User Discovery
+  platforms:
+    windows:
+      cmd:
+        command: 'whoami /all
+
+          '
+        timeout: 60

@@ -1,0 +1,14 @@
+- id: f8de05d1741dcc468f772ab0ff4dac72
+  name: Process Discovery - tasklist
+  description: Windows BAS lab ability for Discovery Scenario
+  tactic: discovery
+  technique:
+    attack_id: T1057
+    name: Process Discovery
+  platforms:
+    windows:
+      cmd:
+        command: 'tasklist
+
+          '
+        timeout: 60

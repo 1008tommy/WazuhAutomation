@@ -1,8 +1,8 @@
 """Build CALDERA server data files from the versioned adversary exports.
 
 Requires PyYAML. The UI exports omit parser, cleanup, and requirement settings;
-this script adds the settings documented in Scenarios/README.md. Review changes
-against the source CALDERA server before treating the bundle as an exact backup.
+this script adds the known settings in EXTRAS. Review changes against the source
+CALDERA server before treating the bundle as an exact backup.
 """
 
 from pathlib import Path
@@ -17,6 +17,7 @@ EXPORTS = (
     "Renamed Utility Lab.yaml",
     "File Delivery and Execution Lab.yaml",
     "Thief-Lab.yaml",
+    "Discovery Scenario.yaml",
 )
 STOCKPILE_IDS = {
     "300157e5-f4ad-4569-b533-9d1fa0e74d74",  # Compress staged directory
@@ -73,9 +74,13 @@ def build():
             if ability_id in STOCKPILE_IDS:
                 continue
             details = exported["abilities"][ability_id]
-            executors = [entry for entry in details["executors"] if entry.get("platform") == "windows" and "psh" in entry]
+            executors = [entry for entry in details["executors"] if entry.get("platform") == "windows"]
             if len(executors) != 1:
-                raise ValueError(f"Expected one Windows psh executor for {ability_id}")
+                raise ValueError(f"Expected one Windows executor for {ability_id}")
+            executor_names = [name for name in ("psh", "cmd") if name in executors[0]]
+            if len(executor_names) != 1:
+                raise ValueError(f"Expected one Windows psh or cmd executor for {ability_id}")
+            executor_name = executor_names[0]
             command = executors[0]["command"]
             if ability_id == "72afaf5a-b793-4301-a791-8dff54918e4e":
                 command, replacements = re.subn(r"https?://[^/\s'\"]+/file/download", "#{server}/file/download", command, count=1)
@@ -93,7 +98,7 @@ def build():
                 "description": f"Windows BAS lab ability for {profile['name']}",
                 "tactic": details["tactic"],
                 "technique": {"attack_id": details["technique_id"], "name": details["technique_name"]},
-                "platforms": {"windows": {"psh": executor}},
+                "platforms": {"windows": {executor_name: executor}},
             }
             if "requirements" in extras:
                 ability["requirements"] = [
@@ -102,7 +107,7 @@ def build():
                 ]
             write_yaml(ROOT / "abilities" / details["tactic"] / f"{ability_id}.yml", [ability])
             custom_ids.add(ability_id)
-    assert len(all_ids) == 11 and len(custom_ids) == 9
+    assert len(all_ids) == 17 and len(custom_ids) == 15
     print(f"Built {len(custom_ids)} custom abilities, {len(EXPORTS)} adversaries, and 1 fact source")
 
 
