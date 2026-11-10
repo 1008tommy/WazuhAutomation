@@ -1,10 +1,11 @@
-"""Offline CALDERA report / Wazuh collector correlation. Python 3.10+; no dependencies."""
+"""Offline CALDERA report / Wazuh collector correlation. Python 3.11+; no dependencies."""
 import argparse
 import csv
 import hashlib
 import html
 import json
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,6 +24,60 @@ def normalize(value):
 
 def valid_pid(value):
     return str(value).isdigit() and int(value) > 0
+
+# Harness artifacts to exclude from scoring (P6): PowerShell writes
+# __PSScriptPolicyTest_*.ps1 on every executor start, and rule 92213 fires on it.
+HARNESS_RULE_IDS = {"92213"}
+HARNESS_SUBSTRINGS = ("__PSScriptPolicyTest_",)
+
+def is_harness_artifact(alert):
+    if str(alert.get("rule", {}).get("id", "")) in HARNESS_RULE_IDS:
+        return True
+    ev = alert.get("data", {}).get("win", {}).get("eventdata", {})
+    blob = f'{ev.get("targetFilename", "")} {ev.get("scriptBlockText", "")}'
+    return any(sub in blob for sub in HARNESS_SUBSTRINGS)
+
+def mitre_ids(alert):
+    mitre = alert.get("rule", {}).get("mitre", {})
+    ids = mitre.get("id") if isinstance(mitre, dict) else None
+    if isinstance(ids, str):
+        return [ids]
+    return [str(i) for i in ids] if isinstance(ids, list) else []
+
+def technique_match_kind(step_technique, alert_mitre):
+    """exact: an alert carries the step technique; related: parent/sub; different: other; none: no tags."""
+    if not alert_mitre:
+        return "none"
+    step = (step_technique or "").upper()
+    ids = [str(m).upper() for m in alert_mitre]
+    if step and step in ids:
+        return "exact"
+    if step and any(step.startswith(m + ".") or m.startswith(step + ".") for m in ids):
+        return "related"
+    return "different"
+
+def collection_complete(collected, archives, window_end):
+    """Never score missed unless collection is verified complete (CLAUDE hard rule)."""
+    if not archives or archives.get("collection_status") != "success":
+        return False
+    watermark = collected.get("agent_watermark")
+    if not watermark or time_value(watermark) < window_end:
+        return False
+    return not set(collected.get("queue_alert_rule_ids", [])) & {"203", "204"}
+
+def row_outcome(status, alert_cands, archive_cands, complete, step_technique):
+    """First matching rule wins (plan 4.4)."""
+    responded = any("active_response" in (c.get("rule_groups") or []) for c in alert_cands)
+    if status in (1, 124) and responded:
+        return "prevented", "n/a"
+    if alert_cands:
+        kind = technique_match_kind(step_technique, [m for c in alert_cands for m in (c.get("rule_mitre_ids") or [])])
+        return ("detected_labelled" if kind in ("exact", "related") else "detected_unlabelled"), kind
+    if archive_cands:
+        return "telemetry_only", "none"
+    if complete:
+        return "missed", "none"
+    return "not_assessable", "none"
 
 def output_reports_file(output, target_path):
     """Require a complete target path in successful command output."""
@@ -95,11 +150,17 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
     # One candidate alert can belong to several steps: never silently choose.
     candidates = [[] for _ in steps]
     rejected = []
+    harness_rule_ids = []
     for index, alert in enumerate(alerts):
         win = alert.get("data", {}).get("win", {})
         ev = win.get("eventdata", {})
         system = win.get("system", {})
         agent = alert.get("agent", {})
+        if is_harness_artifact(alert):          # shown on the dashboard, never scored (P6)
+            rid = str(alert.get("rule", {}).get("id", ""))
+            if rid:
+                harness_rule_ids.append(rid)
+            continue
         owners = []
         for si, (paw, host, step) in enumerate(steps):
             if not step.get("run") or not step.get("command"):
@@ -115,15 +176,18 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             if host.get("host_ip_addrs") and agent.get("ip") not in host["host_ip_addrs"]:
                 continue
             event_id = str(system.get("eventID"))
-            if event_id not in {"1", "11"} or system.get("providerName") != "Microsoft-Windows-Sysmon":
+            provider = system.get("providerName")
+            is_sysmon = provider == "Microsoft-Windows-Sysmon" and event_id in {"1", "11"}
+            is_psh_4104 = provider == "Microsoft-Windows-PowerShell" and event_id == "4104"
+            if not (is_sysmon or is_psh_4104):
                 continue
             alert_time = time_value(alert["timestamp"])
             event_time = time_value(system["systemTime"])
             run_time = time_value(step["run"])
-            if not begin <= alert_time <= end:
-                continue
-            # CALDERA report run is link.finish; use delegation-to-finish bounds.
-            started = time_value(step.get("delegated") or step["run"])
+            # P1: correlate on event time only; the manager timestamp lags ~20 min and must not gate here.
+            # CALDERA report run is link.finish; start from link.collect (agent pickup) when present,
+            # else delegation (P5), through finish.
+            started = time_value(step.get("collect") or step.get("delegated") or step["run"])
             if not -window_seconds <= (event_time-started).total_seconds():
                 continue
             if (event_time-run_time).total_seconds() > window_seconds:
@@ -133,12 +197,16 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 continue
             command = normalize(step["command"])
             relation = None
-            if event_id == "1":
+            if is_psh_4104:
+                # PowerShell 4104 script block: correlate by the logging process id (P3).
+                if str(system.get("processID")) == str(pid):
+                    relation = "powershell_scriptblock"
+            elif event_id == "1":
                 if str(ev.get("processId")) == str(pid) and command in normalize(ev.get("commandLine", "")):
                     relation = "executor_process"
                 elif str(ev.get("parentProcessId")) == str(pid) and command in normalize(ev.get("parentCommandLine", "")):
                     relation = "direct_child"
-            else:
+            elif event_id == "11":
                 output = step.get("output")
                 output_path = output.get("stdout", "") if isinstance(output, dict) else ""
                 target_path = ev.get("targetFilename", "")
@@ -167,6 +235,9 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 elif relation == "file_created_by_executor":
                     matched_on = ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
                                   "executor_pid", "exact_output_file_path", "sysmon_file_create"]
+                elif relation == "powershell_scriptblock":
+                    matched_on = ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
+                                  "scriptblock_process_id"]
                 else:
                     matched_on = ["agent_id", "hostname", "host_ip_if_present", "event_time_window",
                                   "process_or_parent_pid", "full_executor_command"]
@@ -176,11 +247,15 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                     "alert_id": alert.get("id"),
                     "rule_id": str(alert.get("rule", {}).get("id", "")),
                     "rule_description": alert.get("rule", {}).get("description"),
+                    "rule_level": alert.get("rule", {}).get("level"),
+                    "rule_mitre_ids": mitre_ids(alert),
+                    "rule_groups": alert.get("rule", {}).get("groups") or [],
                     "relation": relation,
                     "alert_time_utc": alert_time.isoformat(),
                     "event_time_utc": event_time.isoformat(),
                     "event_minus_run_seconds": (event_time - run_time).total_seconds(),
                     "process_id": ev.get("processId"),
+                    "scriptblock_process_id": system.get("processID"),
                     "parent_process_id": ev.get("parentProcessId"),
                     "process_guid": ev.get("processGuid"),
                     "parent_process_guid": ev.get("parentProcessGuid"),
@@ -259,6 +334,7 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             "Process GUIDs are retained; correlation also requires host, time, PID and full executor command.",
         ],
         "unmatched_alert_indices": rejected,
+        "harness_rule_ids": harness_rule_ids,
         "results": rows,
     }
 
@@ -277,8 +353,8 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
         if archive_status == "success":
             adapted = dict(archives, alerts=archives.get("events"), alert_count=archives.get("event_count"))
             archive_result = _match_records(report, adapted, agent_id, window_seconds, host_filter)
-    result["schema_version"] = "0.4"
-    result["matcher_scope"] = "Sysmon process creation for executor, direct child, or scheduled-task action, plus reported T1105 and T1036.003 file creation; alerts and archives matched separately"
+    result["schema_version"] = "0.5"
+    result["matcher_scope"] = "Sysmon process creation (executor, child, scheduled-task action, reported T1105/T1036.003 file creation) and PowerShell 4104 script blocks; harness artifacts excluded; six-outcome scoring"
     result["archive_collection_status"] = archive_status
     result["archive_collection_error"] = archives.get("error") if archives else None
     result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []
@@ -289,6 +365,9 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
         "Grandchildren and other event types are outside this matcher scope.",
         "Archive and alert counts overlap and must not be added as unique event counts."
     ])
+    window_end = time_value(collected["end"])
+    complete = collection_complete(collected, archives, window_end)
+    harness = ";".join(sorted(set(result.get("harness_rule_ids", []))))
     for index, row in enumerate(result["results"]):
         evidence = []
         if archive_result:
@@ -316,9 +395,26 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
         row["notes"].append("Event collection and alert detection are evaluated separately.")
         if archive_status != "success":
             row["notes"].append("Archive evidence unavailable: " + str(archive_status))
+        alert_unique = [e for e in row["evidence"] if not e["ambiguous"]]
+        if not (valid_pid(row.get("caldera_pid")) and row["detection"] != "not_assessable") \
+                or any(e["ambiguous"] for e in row["evidence"]):
+            outcome, match = "not_assessable", "none"
+        else:
+            outcome, match = row_outcome(row["caldera_status"], alert_unique, unique, complete, row.get("technique_id"))
+        row["outcome"] = outcome
+        row["technique_match"] = match
+        row["alert_mitre_ids"] = ";".join(sorted({m for e in alert_unique for m in (e.get("rule_mitre_ids") or [])}))
+        levels = [e["rule_level"] for e in alert_unique if e.get("rule_level") is not None]
+        row["rule_levels"] = ";".join(str(level) for level in sorted(set(levels)))
+        row["max_rule_level"] = max(levels) if levels else ""
+        row["response"] = "executed" if any("active_response" in (e.get("rule_groups") or []) for e in alert_unique) else "none"
+        row["collection_complete"] = complete
+        row["harness_alert_rule_ids"] = harness
     return result
 
 def main():
+    if sys.version_info < (3, 11):
+        raise SystemExit("Python 3.11+ required: Wazuh +0800 offsets and 7-digit fractions do not parse on 3.10.")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--caldera", required=True, type=Path)
     parser.add_argument("--wazuh", required=True, type=Path)
@@ -344,7 +440,9 @@ def main():
         (args.out / "results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         columns = ["operation_name", "link_id", "ability_id", "ability_name", "technique_id",
                    "host", "caldera_agent", "wazuh_agent_id", "run_utc", "caldera_pid",
-                   "caldera_status", "execution", "detection",
+                   "caldera_status", "execution", "detection", "outcome", "technique_match",
+                   "alert_mitre_ids", "rule_levels", "max_rule_level", "response",
+                   "collection_complete", "harness_alert_rule_ids",
                    "rule_ids", "matched_alert_count", "output_present", "event_collection",
                    "collection_evidence_sources", "archive_collection_status",
                    "matched_archive_event_count", "alert_interpretation"]
@@ -353,7 +451,7 @@ def main():
             writer.writeheader()
             writer.writerows(result["results"])
         for row in result["results"]:
-            print(f'{row["ability_name"]}: {row["execution"]}; collection={row["event_collection"]}; detection={row["detection"]}; rules={row["rule_ids"]}')
+            print(f'{row["ability_name"]}: outcome={row["outcome"]}; technique_match={row["technique_match"]}; detection={row["detection"]}; rules={row["rule_ids"]}')
         print("Results saved to", args.out.resolve())
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, f"ERROR: {error}\n")

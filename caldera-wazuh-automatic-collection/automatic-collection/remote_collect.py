@@ -12,6 +12,14 @@ def stamp(text):
         raise ValueError("Timezone required")
     return dt.astimezone(timezone.utc)
 
+def event_time(record):
+    """Real event time (Windows systemTime); the manager timestamp lags it by ~20 min in this lab."""
+    system = record.get("data", {}).get("win", {}).get("system", {})
+    text = system.get("systemTime") or record.get("timestamp")
+    if not text:
+        raise ValueError("Record has neither systemTime nor timestamp")
+    return stamp(text)
+
 def collect(root, agent, start, end, source="alerts"):
     if end <= start:
         raise ValueError("Invalid collection interval")
@@ -28,6 +36,7 @@ def collect(root, agent, start, end, source="alerts"):
         paths.extend([base, Path(str(base) + ".gz")])
         day += timedelta(days=1)
     matches, seen, scanned, incomplete_tail_files = [], set(), [], []
+    watermark, queue_alert_rule_ids = None, []
     for path in paths:
         if not path.exists():
             continue
@@ -65,11 +74,21 @@ def collect(root, agent, start, end, source="alerts"):
                 except (ValueError, TypeError) as error:
                     raise ValueError(f"Cannot parse {path}, line {number}; retry collection: {error}") from error
                 try:
-                    alert_time = stamp(record["timestamp"])
+                    stamp(record["timestamp"])      # validate the manager time is present and parseable
+                    occurred = event_time(record)    # but correlate on the event time, not the lagged manager time
                 except (ValueError, KeyError, TypeError) as error:
                     raise ValueError(f"Cannot parse {path}, line {number}; retry collection: {error}") from error
                 complete_lines += 1
-                if str(record.get("agent", {}).get("id")) != agent or not start <= alert_time <= end:
+                if str(record.get("agent", {}).get("id")) != agent:
+                    continue
+                # Newest agent event time seen anywhere in the files, so the orchestrator can
+                # tell whether ingestion has caught up to the window end before scoring (P2/P10).
+                if watermark is None or occurred > watermark:
+                    watermark = occurred
+                if (source == "alerts" and start <= occurred <= end
+                        and str(record.get("rule", {}).get("id", "")) in {"202", "203", "204"}):
+                    queue_alert_rule_ids.append(str(record["rule"]["id"]))
+                if not start <= occurred <= end:
                     continue
                 # Wazuh IDs can be shared by distinct events in the same second.
                 # Only collapse identical records duplicated across current/rotated files.
@@ -80,7 +99,7 @@ def collect(root, agent, start, end, source="alerts"):
         scanned.append(str(path))
     if not scanned:
         raise FileNotFoundError("No Wazuh JSON files found for requested source")
-    matches.sort(key=lambda a: stamp(a["timestamp"]))
+    matches.sort(key=event_time)
     return {
         "collection_status": "success", "agent_id": agent,
         "start": start.isoformat(), "end": end.isoformat(),
@@ -91,6 +110,8 @@ def collect(root, agent, start, end, source="alerts"):
                          if incomplete_tail_files else
                          "available_files_only; retention and telemetry health not independently verified"),
         "incomplete_tail_files": incomplete_tail_files,
+        "agent_watermark": watermark.isoformat() if watermark else None,
+        "queue_alert_rule_ids": queue_alert_rule_ids,
         ("alert_count" if source == "alerts" else "event_count"): len(matches),
         ("alerts" if source == "alerts" else "events"): matches,
     }

@@ -133,6 +133,24 @@ def run(args):
     report = api(url, key, f"operations/{quote(operation)}/report", {"enable_agent_output": True})
     if not isinstance(report, dict):
         raise ValueError("CALDERA returned no report")
+    original_steps = json.dumps(report.get("steps"), sort_keys=True)   # snapshot before P5 filtering
+    # P5: fetch the links, drop cleanup links from scoring, prefer link.collect as the step start.
+    links = api(url, key, f"operations/{quote(operation)}/links")
+    cleanup_link_ids, collect_times = set(), {}
+    if isinstance(links, list):
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            lid = str(link.get("id"))
+            if link.get("cleanup"):
+                cleanup_link_ids.add(lid)
+            if link.get("collect"):
+                collect_times[lid] = link.get("collect")
+        for group in report.get("steps", {}).values():
+            group["steps"] = [s for s in group["steps"] if str(s.get("link_id")) not in cleanup_link_ids]
+            for s in group["steps"]:
+                if collect_times.get(str(s.get("link_id"))):
+                    s["collect"] = collect_times[str(s.get("link_id"))]
     before, after = int(config.get("before_seconds",30)), int(config.get("after_seconds",90))
     grace = int(config.get("ingestion_grace_seconds",30))
     if min(before, after, grace) < 0:
@@ -163,8 +181,26 @@ def run(args):
         command = shlex.join(["sudo", "-k", "-S", "-p", "", "--", "python3", "-c", bootstrap,
                               "--agent", str(config["wazuh_agent_id"]),
                               "--start", start.isoformat(), "--end", end.isoformat()])
-        collected = json.loads(remote(client, command, sudo_password))
-        print("Collected alerts:", collected.get("alert_count"), flush=True)
+        # P2: poll until the agent's event watermark passes the window end (ingestion lag),
+        # or a configurable maximum wait elapses. Never score missed on an incomplete run.
+        max_wait = int(config.get("max_ingest_wait_seconds", 2700))
+        poll = max(15, int(config.get("watermark_poll_seconds", 60)))
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=max_wait)
+        while True:
+            collected = json.loads(remote(client, command, sudo_password))
+            watermark = collected.get("agent_watermark")
+            caught_up = bool(watermark and time_value(watermark) >= end)
+            if caught_up or datetime.now(timezone.utc) >= deadline:
+                break
+            print(f"Ingestion watermark {watermark} is behind window end {end.isoformat()}; "
+                  f"waiting {poll}s for events to arrive...", flush=True)
+            time.sleep(poll)
+        print("Collected alerts:", collected.get("alert_count"),
+              "| watermark:", collected.get("agent_watermark"),
+              "| collection complete:", caught_up, flush=True)
+        if collected.get("queue_alert_rule_ids"):
+            print("Agent-queue saturation rules in window (telemetry may be incomplete):",
+                  ";".join(collected["queue_alert_rule_ids"]), flush=True)
         try:
             archives = json.loads(remote(client, command + " --source archives", sudo_password))
         except (ValueError, OSError, EOFError) as error:
@@ -188,12 +224,13 @@ def run(args):
         raise ValueError("Remote collection did not succeed")
     # Refetch: refuse to correlate a report that changed during collection.
     latest = api(url, key, f"operations/{operation}/report", {"enable_agent_output": True})
-    if report.get("steps") != latest.get("steps") or report.get("finish") != latest.get("finish"):
+    if original_steps != json.dumps(latest.get("steps"), sort_keys=True) or report.get("finish") != latest.get("finish"):
         raise ValueError("Operation changed while collecting; retry once it is finalized")
 
     root = args.out or Path("runs") / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"-"+operation[:8])
     root.mkdir(parents=True, exist_ok=False)
     save(root/"caldera-report.json", report)
+    save(root/"caldera-links.json", links if isinstance(links, list) else [])
     save(root/"wazuh-alerts.json", collected)
     save(root/"wazuh-archives.json", archives)
     save(root/"run-metadata.json", {
@@ -201,6 +238,10 @@ def run(args):
         "windows_host": config["windows_host"], "wazuh_agent_id": str(config["wazuh_agent_id"]),
         "window_start": start.isoformat(), "window_end": end.isoformat(),
         "before_seconds": before, "after_seconds": after, "ingestion_grace_seconds": grace,
+        "agent_watermark": collected.get("agent_watermark"),
+        "collection_complete": caught_up,
+        "queue_alert_rule_ids": collected.get("queue_alert_rule_ids", []),
+        "cleanup_link_ids": sorted(cleanup_link_ids),
         "collected_at": collected.get("collected_at"),
         "collection_method": "CALDERA v2 report API and read-only Wazuh SSH collector",
         "limitations": ["Ingestion allowance is not proof of complete telemetry.",
@@ -222,6 +263,8 @@ def run(args):
     print("Finished. Evidence and results:", root.resolve())
 
 def main():
+    if sys.version_info < (3, 11):
+        raise SystemExit("Python 3.11+ required: Wazuh +0800 offsets and 7-digit fractions do not parse on 3.10.")
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", type=Path, default=HERE/"config.json")
     p.add_argument("--list", action="store_true", help="List operation IDs without changing them")
