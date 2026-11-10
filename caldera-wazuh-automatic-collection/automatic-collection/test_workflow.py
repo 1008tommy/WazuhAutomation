@@ -20,7 +20,7 @@ def report():
 
 def event():
     return {'id':'record-1','timestamp':'2020-01-02T00:01:00Z','agent':{'id':'002','name':'Test','ip':'10.0.0.1'},
-            'data':{'win':{'system':{'eventID':'1','providerName':'Microsoft-Windows-Sysmon','systemTime':'2020-01-02T00:00:59Z'},
+            'data':{'win':{'system':{'eventID':'1','providerName':'Microsoft-Windows-Sysmon','systemTime':'2020-01-02T00:00:59Z','computer':'Test'},
              'eventdata':{'processId':'100','parentProcessId':'50','commandLine':'powershell.exe -C tasklist /m'}}},
             'rule':{'id':'0','description':'An archive rule is not an alert'}}
 
@@ -130,10 +130,23 @@ class RegressionTests(unittest.TestCase):
     def test_wrong_host_time_and_pid_do_not_match(self):
         for category in ('host','time','pid'):
             e=event()
-            if category=='host': e['agent']['name']='Other'
+            if category=='host': e['data']['win']['system']['computer']='Other'
             if category=='time': e['data']['win']['system']['systemTime']='2020-01-01T20:00:00Z'
             if category=='pid': e['data']['win']['eventdata']['processId']='999'
             self.assertEqual(self.result(archives=export([e],True))['event_collection'],'not_confirmed')
+
+    def test_custom_agent_name_uses_windows_computer_and_legacy_fallback(self):
+        e=event(); e['agent']['name']='CustomEnrollmentName'
+        self.assertEqual(self.result(archives=export([e],True))['matched_archive_event_count'],1)
+        del e['data']['win']['system']['computer']
+        self.assertEqual(self.result(archives=export([e],True))['matched_archive_event_count'],0)
+        e['agent']['name']='Test'
+        self.assertEqual(self.result(archives=export([e],True))['matched_archive_event_count'],1)
+
+    def test_agent_id_and_ip_still_required_with_custom_name(self):
+        for field, value in (('id','001'),('ip','10.0.0.2')):
+            e=event(); e['agent']['name']='CustomEnrollmentName'; e['agent'][field]=value
+            self.assertEqual(self.result(archives=export([e],True))['matched_archive_event_count'],0)
 
     def test_registered_scheduled_action_matches_scheduler_spawned_alert(self):
         e=scheduled_action_event()
@@ -224,6 +237,31 @@ class RegressionTests(unittest.TestCase):
             root=Path(td)
             with self.assertRaises(FileNotFoundError): remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
             (root/'archives.json').write_text('{incomplete')
+            with self.assertRaises(ValueError): remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
+
+    def test_live_file_partial_tail_keeps_complete_records_and_marks_gap(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            (root/'archives.json').write_text(json.dumps(event())+'\n'+json.dumps(event())[:20])
+            result=remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
+            self.assertEqual(result['event_count'],1)
+            self.assertEqual(result['incomplete_tail_files'],[str(root/'archives.json')])
+            self.assertIn('unfinished_trailing_line_skipped',result['completeness'])
+
+    def test_malformed_complete_line_and_rotated_tail_still_fail(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            (root/'archives.json').write_text(json.dumps(event())+'\n{incomplete\n')
+            with self.assertRaises(ValueError): remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
+            (root/'archives.json').unlink()
+            folder=root/'2020'/'Jan'; folder.mkdir(parents=True)
+            (folder/'ossec-archive-02.json').write_text(json.dumps(event())+'\n{incomplete')
+            with self.assertRaises(ValueError): remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
+
+    def test_live_file_complete_record_without_timestamp_still_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            (root/'archives.json').write_text(json.dumps(event())+'\n'+json.dumps({'agent':{'id':'002'}}))
             with self.assertRaises(ValueError): remote_collect.collect(root,'002',remote_collect.stamp(START),remote_collect.stamp(END),'archives')
 
 class OrchestrationTests(unittest.TestCase):

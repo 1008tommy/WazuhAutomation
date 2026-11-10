@@ -106,7 +106,11 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
                 continue
             if str(agent.get("id")) != agent_id:
                 continue
-            if str(agent.get("name", "")).casefold() != str(host.get("host", "")).casefold():
+            # The Wazuh enrollment name can differ from the Windows hostname.
+            # Prefer the computer recorded by Windows; retain the agent name
+            # fallback for older exports without that field.
+            computer = system.get("computer") or agent.get("name", "")
+            if str(computer).casefold() != str(host.get("host", "")).casefold():
                 continue
             if host.get("host_ip_addrs") and agent.get("ip") not in host["host_ip_addrs"]:
                 continue

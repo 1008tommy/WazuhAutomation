@@ -27,14 +27,22 @@ def collect(root, agent, start, end, source="alerts"):
         base = root / str(day.year) / months[day.month-1] / f"{prefix}-{day.day:02}.json"
         paths.extend([base, Path(str(base) + ".gz")])
         day += timedelta(days=1)
-    matches, seen, scanned = [], set(), []
+    matches, seen, scanned, incomplete_tail_files = [], set(), [], []
     for path in paths:
         if not path.exists():
             continue
         # Bound current-file reads to the size at open time; avoid chasing a writer.
         opener = gzip.open if path.suffix == ".gz" else open
         with opener(path, "rb") as stream:
-            remaining = path.stat().st_size if path.suffix != ".gz" else None
+            if path.suffix != ".gz":
+                # Size the file descriptor we opened, even if rotation swaps
+                # the path while the manager is writing.
+                stream.seek(0, 2)
+                remaining = stream.tell()
+                stream.seek(0)
+            else:
+                remaining = None
+            complete_lines = 0
             for number in range(1, 1000000000):
                 raw = stream.readline() if remaining is None else stream.readline(remaining)
                 if not raw:
@@ -45,9 +53,22 @@ def collect(root, agent, start, end, source="alerts"):
                     continue
                 try:
                     record = json.loads(raw)
+                except json.JSONDecodeError as error:
+                    # A live JSONL file may be snapshotted midway through its
+                    # last write. Keep complete records and mark the skipped
+                    # tail; never skip malformed newline-terminated records.
+                    if (path == paths[0] and remaining == 0
+                            and not raw.endswith(b"\n") and complete_lines):
+                        incomplete_tail_files.append(str(path))
+                        break
+                    raise ValueError(f"Cannot parse {path}, line {number}; retry collection: {error}") from error
+                except (ValueError, TypeError) as error:
+                    raise ValueError(f"Cannot parse {path}, line {number}; retry collection: {error}") from error
+                try:
                     alert_time = stamp(record["timestamp"])
                 except (ValueError, KeyError, TypeError) as error:
                     raise ValueError(f"Cannot parse {path}, line {number}; retry collection: {error}") from error
+                complete_lines += 1
                 if str(record.get("agent", {}).get("id")) != agent or not start <= alert_time <= end:
                     continue
                 # Wazuh IDs can be shared by distinct events in the same second.
@@ -65,7 +86,11 @@ def collect(root, agent, start, end, source="alerts"):
         "start": start.isoformat(), "end": end.isoformat(),
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "source": str(root), "files_scanned": scanned,
-        "completeness": "available_files_only; retention and telemetry health not independently verified",
+        "completeness": ("available_files_only; unfinished_trailing_line_skipped; "
+                         "retention and telemetry health not independently verified"
+                         if incomplete_tail_files else
+                         "available_files_only; retention and telemetry health not independently verified"),
+        "incomplete_tail_files": incomplete_tail_files,
         ("alert_count" if source == "alerts" else "event_count"): len(matches),
         ("alerts" if source == "alerts" else "events"): matches,
     }
