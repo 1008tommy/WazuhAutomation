@@ -37,6 +37,18 @@ OLD_DEFENDER_HASHES = {
 }
 
 
+def same_profile_with_caldera_id(source_bytes, current_bytes, destination):
+    """Accept only an otherwise identical adversary with CALDERA's extra ID."""
+    if destination.parent.name != "adversaries":
+        return False
+    source_lines = source_bytes.replace(b"\r\n", b"\n").splitlines()
+    current_lines = current_bytes.replace(b"\r\n", b"\n").splitlines()
+    expected_id = f"id: {destination.stem}".encode()
+    added_id = f"adversary_id: {destination.stem}".encode()
+    return bool(source_lines and source_lines[0] == expected_id
+                and current_lines == source_lines + [added_id])
+
+
 def install(caldera_root, upgrade=False):
     root = caldera_root.expanduser().resolve()
     if not (root / "app").is_dir():
@@ -79,7 +91,8 @@ def install(caldera_root, upgrade=False):
             conflicts.append(destination)
             continue
         current_bytes = destination.read_bytes()
-        if current_bytes == source.read_bytes():
+        source_bytes = source.read_bytes()
+        if current_bytes == source_bytes or same_profile_with_caldera_id(source_bytes, current_bytes, destination):
             continue
         previous_hash = PREVIOUS_ABILITY_HASHES.get(destination.name)
         current_hash = hashlib.sha256(current_bytes).hexdigest()
