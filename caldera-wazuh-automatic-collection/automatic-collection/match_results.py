@@ -304,6 +304,8 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             "ability_id": step.get("ability_id"),
             "ability_name": step.get("name"),
             "technique_id": step.get("attack", {}).get("technique_id"),
+            "technique_name": step.get("attack", {}).get("technique_name"),
+            "tactic": step.get("attack", {}).get("tactic"),
             "host": host.get("host"),
             "caldera_agent": paw,
             "wazuh_agent_id": agent_id,
@@ -439,6 +441,7 @@ def main():
         args.out.mkdir(parents=True, exist_ok=False)
         (args.out / "results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         columns = ["operation_name", "link_id", "ability_id", "ability_name", "technique_id",
+                   "technique_name", "tactic",
                    "host", "caldera_agent", "wazuh_agent_id", "run_utc", "caldera_pid",
                    "caldera_status", "execution", "detection", "outcome", "technique_match",
                    "alert_mitre_ids", "rule_levels", "max_rule_level", "response",
