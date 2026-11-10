@@ -39,8 +39,20 @@ EXTRAS = {
         "cleanup": "$dir='C:\\BASLab\\delivery-test'; foreach($name in @('executed.marker','lab-note.ps1')) { $file=Join-Path $dir $name; if ([System.IO.File]::Exists($file)) { [System.IO.File]::Delete($file) } }; if ([System.IO.Directory]::Exists($dir) -and -not (Get-ChildItem -LiteralPath $dir -Force)) { [System.IO.Directory]::Delete($dir) }",
         "parser": "host.file.downloaded",
     },
+    # CALDERA builds cleanup from facts used by this ability's command. This
+    # command uses no extension fact, so its cleanup must not reference one.
     "0ae51c4e-c546-469d-bdf9-0ace34556391": {
-        "cleanup": "$dir='C:\\BASLab\\staged'; $files=@(Get-ChildItem -LiteralPath 'C:\\BASLab\\input' -File -Filter '*.#{file.sensitive.extension}' -ErrorAction Stop); if ($files.Count -ne 1) { throw 'Expected exactly one synthetic file for cleanup' }; $copy=Join-Path $dir $files[0].Name; if (Test-Path -LiteralPath $copy -PathType Leaf) { Remove-Item -LiteralPath $copy -Force -ErrorAction Stop }; $archive='C:\\BASLab\\staged.zip'; if (Test-Path -LiteralPath $archive -PathType Leaf) { Remove-Item -LiteralPath $archive -Force -ErrorAction Stop }; if (Test-Path -LiteralPath $dir -PathType Container) { [System.IO.Directory]::Delete($dir) }",
+        "cleanup": (
+            "$dir='C:\\BASLab\\staged'; $archive='C:\\BASLab\\staged.zip'; "
+            "if (Test-Path -LiteralPath $dir -PathType Container) { "
+            "$items=@(Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop); "
+            "if ($items.Count -gt 1 -or ($items.Count -eq 1 -and $items[0].PSIsContainer)) "
+            "{ throw 'Unexpected items in BAS staging directory' }; "
+            "if ($items.Count -eq 1) { Remove-Item -LiteralPath $items[0].FullName -Force -ErrorAction Stop }; "
+            "[System.IO.Directory]::Delete($dir) }; "
+            "if (Test-Path -LiteralPath $archive -PathType Leaf) "
+            "{ Remove-Item -LiteralPath $archive -Force -ErrorAction Stop }"
+        ),
         "parser": "host.dir.staged",
     },
     "1fd8b672-e336-49eb-86bc-8731368b451d": {"parser": "host.file.path"},

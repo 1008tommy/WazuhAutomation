@@ -37,6 +37,11 @@ def check():
         assert ability["technique"]["attack_id"], path
         if ability_id in CLEANUP:
             assert executor["cleanup"].strip(), path
+        if ability_id == "0ae51c4e-c546-469d-bdf9-0ace34556391":
+            # This ability's creation command uses no facts, so CALDERA
+            # cannot resolve a fact placeholder in its cleanup command.
+            assert "#{" not in executor["cleanup"], path
+            assert "C:\\BASLab\\staged" in executor["cleanup"], path
         if ability_id in PARSERS:
             assert executor["parsers"]["plugins.stockpile.app.parsers.basic"][0]["source"] == PARSERS[ability_id], path
         if ability_id == "84ec1290-e830-4ae2-b7b6-16adc609c23d":
