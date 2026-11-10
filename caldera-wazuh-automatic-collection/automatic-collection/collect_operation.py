@@ -4,6 +4,7 @@ import base64
 import getpass
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -71,7 +72,7 @@ def connect(config):
     client = paramiko.SSHClient()
     client.load_host_keys(str(known))
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
-    password = getpass.getpass(f"Ubuntu SSH password for {config['wazuh_user']}@{config['wazuh_host']}: ")
+    password = os.environ.get("BAS_SSH_PASSWORD") or getpass.getpass(f"Ubuntu SSH password for {config['wazuh_user']}@{config['wazuh_host']}: ")
     try:
         client.connect(config["wazuh_host"], port=config.get("wazuh_port",22),
                        username=config["wazuh_user"], password=password,
@@ -117,7 +118,7 @@ def run(args):
     parts = urlsplit(url)
     if parts.scheme not in ("http","https") or not parts.hostname or parts.username or parts.query or parts.fragment:
         raise ValueError("Invalid CALDERA URL")
-    key = getpass.getpass("CALDERA red API key (not dashboard password): ").strip()
+    key = (os.environ.get("BAS_CALDERA_KEY") or getpass.getpass("CALDERA red API key (not dashboard password): ")).strip()
     if not key:
         raise ValueError("An API key is required")
     if args.list:
@@ -173,7 +174,7 @@ def run(args):
         clock = float(remote(client, "date -u +%s").strip())
         if abs(clock-datetime.now(timezone.utc).timestamp()) > 30:
             raise ValueError("Wazuh and this computer differ by over 30 seconds; synchronize clocks")
-        sudo_password = getpass.getpass("Ubuntu sudo password (normally the same Ubuntu password): ")
+        sudo_password = os.environ.get("BAS_SUDO_PASSWORD") or getpass.getpass("Ubuntu sudo password (normally the same Ubuntu password): ")
         program = (HERE/"remote_collect.py").read_bytes()
         encoded = base64.b64encode(program).decode("ascii")
         # Only trusted bundled collector code is executed, never content from reports.

@@ -11,6 +11,7 @@ Usage:
 import argparse
 import getpass
 import json
+import os
 import subprocess
 import sys
 import time
@@ -143,7 +144,7 @@ def run(args):
     group = config.get("caldera_group", "red")
     host = config["windows_host"]
     specs = [load_spec(p) for p in args.specs]
-    key = getpass.getpass("CALDERA red API key (not dashboard password): ").strip()
+    key = (os.environ.get("BAS_CALDERA_KEY") or getpass.getpass("CALDERA red API key (not dashboard password): ")).strip()
     if not key:
         raise ValueError("An API key is required")
     client = Caldera(url, key)
