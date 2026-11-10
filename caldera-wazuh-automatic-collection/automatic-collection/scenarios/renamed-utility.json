@@ -1,0 +1,10 @@
+{
+  "scenario": "renamed-utility",
+  "name": "Renamed Utility Lab",
+  "adversary_id": "10749bee-8a14-4917-b3e7-4608546b13d7",
+  "planner": "atomic",
+  "source": null,
+  "obfuscator": "plain-text",
+  "jitter": "2/8",
+  "expected_techniques": ["T1036.003"]
+}

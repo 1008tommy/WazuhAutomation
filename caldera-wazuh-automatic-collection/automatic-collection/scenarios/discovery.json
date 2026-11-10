@@ -1,0 +1,10 @@
+{
+  "scenario": "discovery",
+  "name": "Discovery Scenario",
+  "adversary_id": "c6946236-d4e4-4e4f-8dc7-433c84a702a3",
+  "planner": "atomic",
+  "source": null,
+  "obfuscator": "plain-text",
+  "jitter": "2/8",
+  "expected_techniques": ["T1033", "T1087.001", "T1057", "T1135", "T1018", "T1518.001", "T1069"]
+}

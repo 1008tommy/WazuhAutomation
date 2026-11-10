@@ -350,4 +350,36 @@ class OrchestrationTests(unittest.TestCase):
             self.assertEqual(result['event_collection'],'confirmed')
             self.assertEqual(result['detection'],'no_matching_alert_observed')
 
+class ScenarioRunnerTests(unittest.TestCase):
+    def test_validate_spec_rejects_evasion_and_bad_fields(self):
+        import run_scenario
+        good={'scenario':'discovery','name':'D','adversary_id':'c6946236-d4e4-4e4f-8dc7-433c84a702a3','planner':'atomic'}
+        run_scenario.validate_spec(good)
+        for bad in [dict(good,obfuscator='base64'),dict(good,platform='linux'),
+                    {k:v for k,v in good.items() if k!='adversary_id'},dict(good,adversary_id='nope')]:
+            with self.assertRaises(ValueError): run_scenario.validate_spec(bad)
+
+    def test_installed_specs_load_and_are_plain_text(self):
+        import run_scenario
+        for name in ('discovery','scheduled-task','renamed-utility','file-delivery','thief-lab'):
+            spec=run_scenario.load_spec(run_scenario.HERE/'scenarios'/f'{name}.json')
+            self.assertEqual(spec['obfuscator'],'plain-text')
+
+    def test_check_target_allows_only_configured_host(self):
+        import run_scenario
+        now=datetime(2020,1,2,0,5,0,tzinfo=timezone.utc)
+        ok=[{'paw':'tkjszy','group':'red','host':'WIN11-TEST01','trusted':True,'last_seen':'2020-01-02T00:04:30Z'}]
+        self.assertEqual(run_scenario.check_target(ok,'red','WIN11-TEST01',now=now)['paw'],'tkjszy')
+        for bad in [ok+[{'paw':'x','group':'red','host':'OTHER','trusted':True,'last_seen':'2020-01-02T00:04:30Z'}],
+                    [dict(ok[0],trusted=False)],[dict(ok[0],last_seen='2020-01-02T00:00:00Z')],[]]:
+            with self.assertRaises(ValueError): run_scenario.check_target(bad,'red','WIN11-TEST01',now=now)
+
+    def test_cleanup_status_and_operation_fields(self):
+        import run_scenario
+        self.assertTrue(run_scenario.cleanup_status([{'cleanup':1,'status':0},{'cleanup':0,'status':1}])[0])
+        ok,_,failed=run_scenario.cleanup_status([{'cleanup':1,'status':1}])
+        self.assertFalse(ok); self.assertEqual(len(failed),1)
+        f=run_scenario.operation_fields({'scenario':'d','adversary_id':'x'},'pid','sid','red')
+        self.assertEqual((f['obfuscator'],f['adversary']['adversary_id'],f['group']),('plain-text','x','red'))
+
 if __name__=='__main__': unittest.main()

@@ -1,0 +1,10 @@
+{
+  "scenario": "scheduled-task",
+  "name": "Scheduled Task Creation",
+  "adversary_id": "a8a34f58-b875-4d1f-9969-4b32f58da907",
+  "planner": "atomic",
+  "source": null,
+  "obfuscator": "plain-text",
+  "jitter": "2/8",
+  "expected_techniques": ["T1053.005"]
+}

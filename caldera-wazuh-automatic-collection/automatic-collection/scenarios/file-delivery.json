@@ -1,0 +1,10 @@
+{
+  "scenario": "file-delivery",
+  "name": "File Delivery and Execution Lab",
+  "adversary_id": "49c1623f-f8c0-4de2-9424-a139963334ff",
+  "planner": "atomic",
+  "source": null,
+  "obfuscator": "plain-text",
+  "jitter": "2/8",
+  "expected_techniques": ["T1105", "T1059.001"]
+}
