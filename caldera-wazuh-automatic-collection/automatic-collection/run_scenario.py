@@ -81,8 +81,8 @@ def operation_fields(spec, planner_id, source_id, group):
     return {
         "name": f"{spec['scenario']}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
         "adversary": {"adversary_id": spec["adversary_id"]},
-        "planner": planner_id,
-        "source": source_id,
+        "planner": {"id": planner_id},
+        "source": {"id": source_id},
         "group": group,
         "autonomous": 1,
         "auto_close": True,
