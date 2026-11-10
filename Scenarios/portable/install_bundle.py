@@ -19,6 +19,12 @@ PREVIOUS_ABILITY_HASHES = {
     "50a40429-7a61-4a76-b8ff-600f3e7f8bff.yml": "6d15ea3420a3e83bece9df34d45cfc3efc04e49bcfd17b0269a8aa6a4d34931e",
     "72afaf5a-b793-4301-a791-8dff54918e4e.yml": "cf6a9f1f68ccbc489b64348bc0e386bda6fb4c5c14c0b3322d8b2d23baa993fb",
 }
+# The next published Thief-Lab bundle had a cleanup command with a fact that
+# CALDERA cannot substitute for this ability. Accept only its exact bytes.
+THIEF_STAGING_ABILITY_HASHES = {
+    "43251ffdfd7b7e49c5d0e7a7899492cf69942facaf4df162f813850486f21f55",  # LF
+    "e8fd455a622e291e7f8bae1a9c508ca70a20df720eb62cd34db5d9608542635c",  # CRLF
+}
 # Accept the published Git bytes (LF) and Windows checkout bytes (CRLF).
 DISCOVERY_PROFILE_HASHES = {
     "6ba32f690d2915ffc4301f07d8f60569046d58392c0f287a92a561914c12728e",
@@ -78,7 +84,10 @@ def install(caldera_root, upgrade=False):
         previous_hash = PREVIOUS_ABILITY_HASHES.get(destination.name)
         current_hash = hashlib.sha256(current_bytes).hexdigest()
         published_profile = destination.name == "c6946236-d4e4-4e4f-8dc7-433c84a702a3.yml" and current_hash in DISCOVERY_PROFILE_HASHES
-        if upgrade and ((previous_hash and current_hash == previous_hash) or published_profile):
+        published_thief_ability = (destination.name == "0ae51c4e-c546-469d-bdf9-0ace34556391.yml"
+                                   and current_hash in THIEF_STAGING_ABILITY_HASHES)
+        if upgrade and ((previous_hash and current_hash == previous_hash)
+                        or published_profile or published_thief_ability):
             replacements.add(destination)
         else:
             conflicts.append(destination)
