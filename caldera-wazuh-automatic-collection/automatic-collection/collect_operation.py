@@ -177,6 +177,9 @@ def run(args):
             }
         print("Archive collection:", archives.get("collection_status"),
               "events:", archives.get("event_count"), flush=True)
+        if archives.get("incomplete_tail_files"):
+            print("Archive snapshot skipped an unfinished trailing record in:",
+                  ", ".join(archives["incomplete_tail_files"]), flush=True)
         if archives.get("collection_status") != "success":
             print("Archive evidence unavailable:", archives.get("error", "unknown reason"))
     finally:
@@ -204,6 +207,7 @@ def run(args):
                         "Available alert and archive files only; absent evidence does not establish a miss.",
                         "Only configured endpoint is evaluated; all raw report steps are preserved."],
         "archive_collection_status": archives.get("collection_status"),
+        "archive_incomplete_tail_files": archives.get("incomplete_tail_files", []),
         "wazuh_host": config["wazuh_host"],
         "config_path": str(args.config.resolve()),
         "collector_sha256": hashlib.sha256(program).hexdigest(),
