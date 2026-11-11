@@ -64,9 +64,9 @@ Correlation is on the Windows **event time** (`data.win.system.systemTime`), nev
 `timestamp`, which lags about 20 minutes here. The collector waits up to five minutes for the agent's
 alert watermark to pass the window end. If it does not advance (for example, because there are no
 later alerts), collection continues with `collection_complete=false`; a step without evidence is
-`not_assessable`, not `missed`. Set `max_ingest_wait_seconds` in `config.json` if the lab needs a
-different limit. Each step
-gets one outcome:
+`not_assessable`, not `missed`. The collector checks the watermark every 15 seconds by default;
+`watermark_poll_seconds` and `max_ingest_wait_seconds` in `config.json` control polling and the
+maximum wait. Each step gets one outcome:
 
 `prevented` · `detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
 tag) · `telemetry_only` (log, no alert) · `missed` (nothing, collection verified complete) ·
