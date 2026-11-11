@@ -9,6 +9,17 @@ These five profiles simulate small, repeatable techniques on an isolated Windows
 - If measuring Wazuh detection, confirm that Sysmon and the Wazuh agent are collecting events from this VM.
 - Start each operation with the intended Windows agent group and the atomic planner. Check each scenario's specific setup below.
 
+### Prepare and check the Windows test VM
+
+Copy [prepare-windows-lab.ps1](prepare-windows-lab.ps1) to the **Windows test VM** and open PowerShell as Administrator. The default mode (or `-CheckOnly`) only checks prerequisites. `-Prepare` creates `C:\BASLab\input\secretInfo.txt` containing a synthetic marker if the input directory is empty. It does not install security software, overwrite files, remove old artifacts, or run a CALDERA operation.
+
+```powershell
+.\prepare-windows-lab.ps1 -Prepare -CalderaUrl 'http://YOUR-CALDERA-SERVER:8888'
+.\prepare-windows-lab.ps1 -CheckOnly -CalderaUrl 'http://YOUR-CALDERA-SERVER:8888'
+```
+
+The script reports `BLOCKED` for leftover scenario artifacts, missing local commands, or unavailable Wazuh/Sysmon components. Review any existing files or tasks before using the corresponding scenario. The optional `-CalderaUrl` check tests TCP reachability, not CALDERA login or payload download. It also prints `MANUAL` checks for the CALDERA agent, server-side bundle and Stockpile, Thief-Lab fact-source selection, and Wazuh manager ingestion. Run it on the endpoint; use [install_bundle.py](portable/install_bundle.py) separately on the Ubuntu CALDERA server. If your lab uses another synthetic file extension, prepare that file yourself and set `file.sensitive.extension` to match; this helper prepares only the default `.txt` input.
+
 ## Discovery Scenario
 
 **Profile:** [Discovery Scenario.yaml](Discovery%20Scenario.yaml)
@@ -67,3 +78,4 @@ These five profiles simulate small, repeatable techniques on an isolated Windows
 - In **Fact Sources**, open **Thief-Lab** and set `file.sensitive.extension` to the file's extension **without the dot**. Change `txt` to `csv` if the test file is a `.csv`. The portable source starts with `txt` and score `11`.
 - Select the **Thief-Lab** fact source when creating the operation. Installing the source does not automatically attach it to an operation.
 - Confirm `C:\BASLab\staged` and `C:\BASLab\staged.zip` are absent. Confirm Stockpile is enabled, since the compression and upload abilities come from it, and the Windows VM can reach the CALDERA server.
+
