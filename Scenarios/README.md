@@ -18,7 +18,7 @@ Copy [prepare-windows-lab.ps1](prepare-windows-lab.ps1) to the **Windows test VM
 .\prepare-windows-lab.ps1 -CheckOnly -CalderaUrl 'http://YOUR-CALDERA-SERVER:8888'
 ```
 
-The script reports `BLOCKED` for leftover scenario artifacts, missing local commands, or unavailable Wazuh/Sysmon components. Review any existing files or tasks before using the corresponding scenario. The optional `-CalderaUrl` check tests TCP reachability, not CALDERA login or payload download. It also prints `MANUAL` checks for the CALDERA agent, server-side bundle and Stockpile, Thief-Lab fact-source selection, and Wazuh manager ingestion. Run it on the endpoint; use [install_bundle.py](portable/install_bundle.py) separately on the Ubuntu CALDERA server. If your lab uses another synthetic file extension, prepare that file yourself and set `file.sensitive.extension` to match; this helper prepares only the default `.txt` input.
+The script reports `BLOCKED` for leftover scenario artifacts, missing local commands, or unavailable Wazuh/Sysmon components. Review any existing files or tasks before using the corresponding scenario. The optional `-CalderaUrl` check tests TCP reachability, not CALDERA login or payload download. Run it on the endpoint; use [install_bundle.py](portable/install_bundle.py) separately on the Ubuntu CALDERA server. If your lab uses another synthetic file extension, prepare that file yourself and set `file.sensitive.extension` to match; this helper prepares only the default `.txt` input.
 
 ## Discovery Scenario
 
