@@ -23,7 +23,6 @@ from urllib.parse import urlsplit
 from caldera_api import Caldera
 
 HERE = Path(__file__).resolve().parent
-STOCK_BASIC_SOURCE = "ed32b9c3-9593-4c33-b0db-e2007315096b"
 FINISHED_STATES = {"finished", "out_of_time"}
 
 
@@ -101,6 +100,30 @@ def cleanup_status(links):
     return (not failed), cleanup, failed
 
 
+def resolve_source(client, spec):
+    """Resolve a visible fact source before CALDERA can silently fall back to basic."""
+    sources = client.get("sources") or []
+    source_id = spec.get("source")
+    source_name = spec.get("source_name") or ("basic" if not source_id else None)
+    matches = [s for s in sources if s.get("id") == source_id] if source_id else []
+    if not matches and source_name:
+        matches = [s for s in sources if s.get("name") == source_name]
+    if len(matches) != 1:
+        label = source_name or source_id
+        raise ValueError(f"Fact source {label!r} was not found uniquely in CALDERA; check the installed source before launching")
+    source = matches[0]
+    if source_name and source.get("name") != source_name:
+        raise ValueError(f"Fact source {source_id} is named {source.get('name')!r}, expected {source_name!r}")
+    required = spec.get("required_fact_traits", [])
+    for trait in required:
+        values = [str(f.get("value")) for f in source.get("facts", [])
+                  if f.get("trait") == trait and f.get("value")]
+        if len(values) != 1:
+            raise ValueError(f"Fact source {source.get('name')!r} needs exactly one {trait} fact; found {values}")
+        print(f"[{spec['scenario']}] fact source {trait}={values[0]}", flush=True)
+    return source["id"]
+
+
 def wait_for_operation(client, operation_id, timeout_seconds, poll=10, sleeper=time.sleep):
     deadline = time.monotonic() + timeout_seconds
     while True:
@@ -116,13 +139,17 @@ def run_one(client, spec, group, host, config):
     if not client.adversary(spec["adversary_id"]):
         raise ValueError(f"Adversary {spec['adversary_id']} not found; run install_bundle.py on Caldera first")
     planner_id = client.planner_id(spec["planner"])
-    source_id = spec.get("source") or STOCK_BASIC_SOURCE
+    source_id = resolve_source(client, spec)
     fields = operation_fields(spec, planner_id, source_id, group)
     print(f"[{spec['scenario']}] starting operation {fields['name']} (adversary {spec['adversary_id']})", flush=True)
     created = client.create_operation(fields)
     operation_id = created.get("id")
     if not operation_id:
         raise ValueError(f"Caldera did not return an operation id: {created}")
+    actual = created.get("source") or client.operation(operation_id).get("source") or {}
+    if actual.get("id") != source_id:
+        raise ValueError(f"Operation {operation_id} selected fact source {actual.get('name')!r} "
+                         f"({actual.get('id')!r}), expected {source_id!r}; inspect this operation before another launch")
     timeout = int(config.get("operation_timeout_seconds", 600))
     op, state = wait_for_operation(client, operation_id, timeout)
     print(f"[{spec['scenario']}] operation {operation_id} ended in state {state}", flush=True)
