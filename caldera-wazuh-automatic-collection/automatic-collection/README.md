@@ -9,8 +9,9 @@ collector over SSH, nothing installed on the server) and launches only the lab s
 
 1. Python 3.11+ (Wazuh's `+0800` offsets and 7-digit fractions need 3.11).
 2. `python -m pip install -r requirements.txt`
-3. Copy `config.example.json` to `config.json` and set your lab values. `config.json` is gitignored.
-4. Trust the Wazuh SSH host key once: `ssh labadmin@(Wazuh server IP)`, verifying the fingerprint on the
+3. Copy `config.example.json` to `config.json` and set your lab values, including the Wazuh SSH
+   username in `wazuh_user`. `config.json` is gitignored.
+4. Trust the Wazuh SSH host key once: `ssh <wazuh_user>@<Wazuh server IP>`, verifying the fingerprint on the
    VM with `sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`, then exit.
 
 The Caldera API key and the SSH/sudo passwords are entered at hidden prompts, never stored.
@@ -28,6 +29,34 @@ Prerequisites in the lab: Caldera running in tmux, the scenario bundle installed
   `python collect_operation.py --operation <id>`
 - **Rebuild the static report:** `python build_dashboard.py` writes `dashboard/index.html` (a
   self-contained, air-gapped page), a combined CSV and an ATT&CK Navigator layer.
+
+### Try a dashboard launch
+
+The generated `dashboard/index.html` (or `dashboard-preview/index.html`) is an offline report and
+shows **Show command**. To get a **Launch** button, start the local control server from this folder:
+
+```powershell
+python serve_dashboard.py
+```
+
+The dashboard reads this folder's `config.json` by default. To use a config file in another folder,
+start it with `python serve_dashboard.py --config 'C:\path\to\config.json'`. The same selected config
+is passed to both the CALDERA runner and the Wazuh collector. The SSH password prompt shows the
+configured username and host, so verify them before entering the password.
+
+For the original GitHub checkout on this PC, use:
+
+```powershell
+python serve_dashboard.py --config "$env:USERPROFILE\Documents\GitHub\WazuhAutomation\caldera-wazuh-automatic-collection\automatic-collection\config.json"
+```
+
+Enter the CALDERA red API key and Wazuh SSH/sudo passwords at the hidden terminal prompts, keep
+that terminal open, then visit `http://127.0.0.1:8787` in the same PC's browser. Choose **Run a
+scenario** and start with **Discovery Scenario**. The server allows one scenario at a time and shows
+progress in **Activity**. It uses CALDERA's API to run on the configured Windows agent, then saves
+the CALDERA report, Wazuh evidence, and scored results under `runs/`. When collection succeeds, the
+page refreshes with the new result. Operation, cleanup, collection, or rebuild failures appear in
+**Activity** and are not reported as successful runs.
 
 ## How scoring works
 
