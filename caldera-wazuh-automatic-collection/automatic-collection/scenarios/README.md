@@ -20,6 +20,9 @@ Run one scenario end to end (launch, verify cleanup, collect, score, refresh the
 
     python run_scenario.py scenarios/discovery.json --collect
 
+The runner waits for CALDERA's report finish timestamp before checking cleanup links or starting
+Wazuh collection. CALDERA may show state `finished` while cleanup is still running.
+
 Without `--collect` the runner launches and verifies cleanup, then prints the `collect_operation.py`
 command to run next. The runner refuses to start if any host other than `WIN11-TEST01` is in group
 `red`, if the agent is untrusted or stale, or if a spec asks for anything but the plain-text obfuscator.
