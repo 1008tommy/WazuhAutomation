@@ -184,7 +184,9 @@ def run(args):
                               "--start", start.isoformat(), "--end", end.isoformat()])
         # P2: poll until the agent's event watermark passes the window end (ingestion lag),
         # or a configurable maximum wait elapses. Never score missed on an incomplete run.
-        max_wait = int(config.get("max_ingest_wait_seconds", 2700))
+        max_wait = int(config.get("max_ingest_wait_seconds", 300))
+        if max_wait < 0:
+            raise ValueError("max_ingest_wait_seconds must be nonnegative")
         poll = max(15, int(config.get("watermark_poll_seconds", 60)))
         deadline = datetime.now(timezone.utc) + timedelta(seconds=max_wait)
         while True:
@@ -193,9 +195,11 @@ def run(args):
             caught_up = bool(watermark and time_value(watermark) >= end)
             if caught_up or datetime.now(timezone.utc) >= deadline:
                 break
+            remaining = max(0, (deadline - datetime.now(timezone.utc)).total_seconds())
+            delay = min(poll, remaining)
             print(f"Ingestion watermark {watermark} is behind window end {end.isoformat()}; "
-                  f"waiting {poll}s for events to arrive...", flush=True)
-            time.sleep(poll)
+                  f"waiting {int(delay)+1}s (at most {int(remaining)+1}s remain)...", flush=True)
+            time.sleep(delay)
         print("Collected alerts:", collected.get("alert_count"),
               "| watermark:", collected.get("agent_watermark"),
               "| collection complete:", caught_up, flush=True)
