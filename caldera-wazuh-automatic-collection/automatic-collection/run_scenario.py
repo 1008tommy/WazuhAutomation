@@ -125,12 +125,16 @@ def resolve_source(client, spec):
 
 
 def wait_for_operation(client, operation_id, timeout_seconds, poll=10, sleeper=time.sleep):
+    """Wait for CALDERA's report finish timestamp, which is set after cleanup."""
     deadline = time.monotonic() + timeout_seconds
     while True:
         op = client.operation(operation_id)
         state = op.get("state")
-        if state in FINISHED_STATES or time.monotonic() >= deadline:
+        if state in FINISHED_STATES and client.operation_report(operation_id).get("finish"):
             return op, state
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Operation {operation_id} is not fully closed after {timeout_seconds}s "
+                               f"(state {state!r}); check CALDERA cleanup before collecting or launching another scenario")
         sleeper(poll)
 
 
@@ -152,7 +156,7 @@ def run_one(client, spec, group, host, config):
                          f"({actual.get('id')!r}), expected {source_id!r}; inspect this operation before another launch")
     timeout = int(config.get("operation_timeout_seconds", 600))
     op, state = wait_for_operation(client, operation_id, timeout)
-    print(f"[{spec['scenario']}] operation {operation_id} ended in state {state}", flush=True)
+    print(f"[{spec['scenario']}] operation {operation_id} fully closed in state {state}", flush=True)
     ok, cleanup, failed = cleanup_status(client.operation_links(operation_id))
     if not ok:
         print(f"[{spec['scenario']}] CLEANUP FAILED on {len(failed)} link(s); "
