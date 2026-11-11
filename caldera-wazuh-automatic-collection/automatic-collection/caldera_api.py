@@ -78,3 +78,6 @@ class Caldera:
 
     def operation_links(self, operation_id):
         return self.get(f"operations/{operation_id}/links")
+
+    def operation_report(self, operation_id):
+        return self.post(f"operations/{operation_id}/report", {"enable_agent_output": False})
