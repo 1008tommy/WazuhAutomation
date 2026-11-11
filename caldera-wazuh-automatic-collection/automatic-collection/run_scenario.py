@@ -153,14 +153,26 @@ def run(args):
     check_target(client.agents(), group, host)   # refuses any host other than the configured one
     for spec in specs:
         operation_id, state, ok = run_one(client, spec, group, host, config)
+        problems = []
+        if state != "finished":
+            problems.append(f"operation {operation_id} ended in state {state!r}")
+        if not ok:
+            problems.append(f"cleanup failed for operation {operation_id}; revert {host} before another run")
         if args.collect:
             print(f"[{spec['scenario']}] collecting and scoring operation {operation_id}...", flush=True)
             collected = subprocess.run([sys.executable, str(HERE / "collect_operation.py"),
-                                        "--config", str(args.config), "--operation", operation_id])
+                                        "--config", str(args.config.resolve()), "--operation", operation_id],
+                                       cwd=str(HERE))
             if collected.returncode == 0:
-                subprocess.run([sys.executable, str(HERE / "build_dashboard.py")])
+                built = subprocess.run([sys.executable, str(HERE / "build_dashboard.py")], cwd=str(HERE))
+                if built.returncode:
+                    problems.append("dashboard rebuild failed")
+            else:
+                problems.append(f"collection and scoring failed for operation {operation_id}")
         else:
             print(f"[{spec['scenario']}] next: python collect_operation.py --operation {operation_id}", flush=True)
+        if problems:
+            raise ValueError("; ".join(problems))
 
 
 def main():
