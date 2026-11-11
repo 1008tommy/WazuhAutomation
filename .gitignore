@@ -26,6 +26,7 @@ results-*/
 inputs/
 dashboard/
 dashboard-preview/
+console-logs/
 caldera-report*.json
 wazuh-alerts*.json
 wazuh-archives*.json

@@ -53,7 +53,9 @@ python serve_dashboard.py --config "<that checkout>\caldera-wazuh-automatic-coll
 Enter the CALDERA red API key and Wazuh SSH/sudo passwords at the hidden terminal prompts, keep
 that terminal open, then visit `http://127.0.0.1:8787` in the same PC's browser. Choose **Run a
 scenario** and start with **Discovery Scenario**. The server allows one scenario at a time and shows
-progress in **Activity**. It uses CALDERA's API to run on the configured Windows agent, then saves
+progress in **Activity**. Before each launch the page runs read-only lab checks (Caldera API, the Sandcat
+agent, and the Wazuh agent's status on the manager) and does not launch while one fails. The last
+run's activity log stays on the page after it reloads, and every log is saved in `console-logs/`. It uses CALDERA's API to run on the configured Windows agent, then saves
 the CALDERA report, Wazuh evidence, and scored results under `runs/`. When collection succeeds, the
 page refreshes with the new result. Operation, cleanup, collection, or rebuild failures appear in
 **Activity** and are not reported as successful runs.

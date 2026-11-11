@@ -384,6 +384,47 @@ class OrchestrationTests(unittest.TestCase):
             self.assertEqual((meta['alert_watermark'],meta['archive_watermark']),
                              ('2020-01-02T00:04:00+00:00','2020-01-02T00:05:48+00:00'))
 
+class ConsoleTests(unittest.TestCase):
+    def test_page_carries_the_last_job_even_when_finished(self):
+        import serve_dashboard
+        with patch.dict(serve_dashboard.JOBS,{'old':{'state':'done','log':[]}},clear=True):
+            page=serve_dashboard.render_page()
+        self.assertIn(b'"last_job": "old"',page)
+        self.assertIn(b'"active_job": null',page)
+
+    def test_finished_job_log_is_saved(self):
+        import serve_dashboard
+        with tempfile.TemporaryDirectory() as td, patch.object(serve_dashboard,'LOGS',Path(td)), \
+             patch.dict(serve_dashboard.JOBS,{'j1':{'state':'done','log':['one','two'],'started':'20260101T000000Z'}},clear=True):
+            serve_dashboard.save_log('j1','discovery')
+            self.assertEqual((Path(td)/'20260101T000000Z-discovery-j1.log').read_text(encoding='utf-8'),'one\ntwo\n')
+
+    def preflight_with(self,agent_control_output):
+        import serve_dashboard
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as td:
+            config=Path(td)/'config.json'
+            config.write_text(json.dumps({'caldera_url':'http://lab:8888','wazuh_host':'lab','wazuh_user':'u',
+                                          'windows_host':'WIN11-TEST01','wazuh_agent_id':'001'}))
+            caldera=MagicMock()
+            caldera.return_value.agents.return_value=[{'paw':'tkjszy','group':'red','host':'WIN11-TEST01',
+                'trusted':True,'last_seen':datetime.now(timezone.utc).isoformat()}]
+            with patch.object(serve_dashboard,'CONFIG',config), patch.object(serve_dashboard,'Caldera',caldera), \
+                 patch.object(serve_dashboard.collect_operation,'connect',return_value=MagicMock()), \
+                 patch.object(serve_dashboard.collect_operation,'remote',return_value=agent_control_output):
+                return {c['name']:c for c in serve_dashboard.preflight()}
+
+    def test_preflight_passes_when_the_lab_is_ready(self):
+        checks=self.preflight_with('   Agent ID:   001\n   Status:     Active\n')
+        self.assertTrue(all(c['ok'] for c in checks.values()))
+        self.assertIn('tkjszy',checks['Sandcat agent']['detail'])
+
+    def test_preflight_fails_when_the_wazuh_agent_is_not_active(self):
+        checks=self.preflight_with('   Agent ID:   001\n   Status:     Disconnected\n')
+        self.assertTrue(checks['Caldera']['ok'])
+        self.assertFalse(checks['Wazuh agent']['ok'])
+        self.assertIn('Disconnected',checks['Wazuh agent']['detail'])
+
 class ScenarioRunnerTests(unittest.TestCase):
     def test_validate_spec_rejects_evasion_and_bad_fields(self):
         import run_scenario
