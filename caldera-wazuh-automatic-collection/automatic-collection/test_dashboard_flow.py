@@ -75,6 +75,22 @@ class RunnerFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "selected fact source 'basic'"):
             run_scenario.run_one(client, spec, "red", "WIN11-TEST01", {})
 
+    def test_finished_state_waits_for_cleanup_and_report_finish(self):
+        client = Mock()
+        client.operation.return_value = {"state": "finished"}
+        client.operation_report.side_effect = [{"finish": None}, {"finish": "2026-11-11T07:42:00Z"}]
+        _, state = run_scenario.wait_for_operation(client, "operation-id", 60, poll=0,
+                                                    sleeper=lambda _: None)
+        self.assertEqual(state, "finished")
+        self.assertEqual(client.operation_report.call_count, 2)
+
+    def test_open_report_times_out_without_claiming_cleanup_failure(self):
+        client = Mock()
+        client.operation.return_value = {"state": "finished"}
+        client.operation_report.return_value = {"finish": None}
+        with self.assertRaisesRegex(TimeoutError, "not fully closed"):
+            run_scenario.wait_for_operation(client, "operation-id", 0)
+
 
 class DashboardLaunchTests(unittest.TestCase):
     def request(self):
