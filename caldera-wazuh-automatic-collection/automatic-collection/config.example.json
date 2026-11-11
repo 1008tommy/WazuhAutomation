@@ -7,5 +7,6 @@
   "wazuh_agent_id": "001",
   "before_seconds": 30,
   "after_seconds": 90,
-  "ingestion_grace_seconds": 30
+  "ingestion_grace_seconds": 30,
+  "max_ingest_wait_seconds": 300
 }
