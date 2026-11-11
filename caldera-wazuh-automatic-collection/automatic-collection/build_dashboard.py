@@ -424,15 +424,20 @@ function renderLaunch(){
     const b=el("button",{className:"pri",textContent:served?"Launch":"Show command"});
     b.onclick=()=>served?launch(sp):showCmd(sp);
     c.querySelector(".act").append(b);wrap.append(c);});
+  if(served&&DATA.active_job)follow(DATA.active_job);
 }
 function showCmd(sp){document.getElementById("log").textContent="Run on the lab laptop:\n\n    python "+sp.file.replace("scenarios/","run_scenario.py scenarios/")+" --collect\n\nThen reopen this page to see the results.";}
+let pollingJob=null;
+function follow(job){if(pollingJob===job)return;pollingJob=job;poll(job);}
 async function launch(sp){
   if(!confirm("Launch "+(sp.name||sp.scenario)+" on WIN11-TEST01? This runs the scenario in the lab."))return;
   const log=document.getElementById("log");log.textContent="Launching "+sp.scenario+"...\n";
   try{
     const r=await fetch("api/launch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({scenario:sp.scenario})});
-    const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
-    poll(j.job);
+    const j=await r.json();
+    if(r.status===409&&j.job){log.textContent=j.error+"\n";follow(j.job);return;}
+    if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
+    follow(j.job);
   }catch(e){log.textContent+="\nError: "+e.message;}
 }
 async function poll(job){
@@ -441,8 +446,8 @@ async function poll(job){
     const r=await fetch("api/status?job="+encodeURIComponent(job));const j=await r.json();
     log.textContent=(j.log||[]).join("\n");
     if(j.state==="running"){setTimeout(()=>poll(job),2000);}
-    else if(j.state==="done"){log.textContent+="\n\nDone. Refreshing results...";setTimeout(()=>location.reload(),1200);}
-    else log.textContent+="\n\n["+j.state+"]";
+    else if(j.state==="done"){pollingJob=null;log.textContent+="\n\nDone. Refreshing results...";setTimeout(()=>location.reload(),1200);}
+    else{pollingJob=null;log.textContent+="\n\n["+j.state+"]";}
   }catch(e){log.textContent+="\nError polling: "+e.message;}
 }
 function toCsv(rows){const cols=["run_id","scenario","technique_id","technique_name","tactic","ability_name","outcome","technique_match","execution","caldera_status","rule_ids","max_rule_level","alert_mitre_ids","response","time_to_alert_s","collection_complete","harness_alert_rule_ids","run_utc"];
