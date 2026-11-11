@@ -112,6 +112,14 @@ def save(path, data):
     with path.open("x", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+def archive_watermark(client, command, sudo_password):
+    """Newest agent event time in the archives (every event is archived), or None if unreadable."""
+    try:
+        probe = json.loads(remote(client, command + " --source archives", sudo_password))
+    except (ValueError, OSError, EOFError):
+        return None
+    return probe.get("agent_watermark") if probe.get("collection_status") == "success" else None
+
 def run(args):
     config = json.loads(args.config.read_text(encoding="utf-8-sig"))
     url = config["caldera_url"]
@@ -182,8 +190,9 @@ def run(args):
         command = shlex.join(["sudo", "-k", "-S", "-p", "", "--", "python3", "-c", bootstrap,
                               "--agent", str(config["wazuh_agent_id"]),
                               "--start", start.isoformat(), "--end", end.isoformat()])
-        # P2: poll until the agent's event watermark passes the window end (ingestion lag),
-        # or a configurable maximum wait elapses. Never score missed on an incomplete run.
+        # P2: poll until the agent's event stream passes the window end, or a configurable maximum
+        # wait elapses. Never score missed on an incomplete run. The alert watermark only moves when
+        # a later alert fires, so on a quiet endpoint the archive watermark decides instead.
         max_wait = int(config.get("max_ingest_wait_seconds", 300))
         if max_wait < 0:
             raise ValueError("max_ingest_wait_seconds must be nonnegative")
@@ -193,6 +202,11 @@ def run(args):
             collected = json.loads(remote(client, command, sudo_password))
             watermark = collected.get("agent_watermark")
             caught_up = bool(watermark and time_value(watermark) >= end)
+            if not caught_up:
+                archived = archive_watermark(client, command, sudo_password)
+                if archived and time_value(archived) >= end:
+                    watermark, caught_up = archived, True
+                    collected = json.loads(remote(client, command, sudo_password))  # alerts again, now complete
             if caught_up or datetime.now(timezone.utc) >= deadline:
                 break
             remaining = max(0, (deadline - datetime.now(timezone.utc)).total_seconds())
@@ -201,7 +215,7 @@ def run(args):
                   f"waiting {int(delay)+1}s (at most {int(remaining)+1}s remain)...", flush=True)
             time.sleep(delay)
         print("Collected alerts:", collected.get("alert_count"),
-              "| watermark:", collected.get("agent_watermark"),
+              "| watermark:", watermark,
               "| collection complete:", caught_up, flush=True)
         if collected.get("queue_alert_rule_ids"):
             print("Agent-queue saturation rules in window (telemetry may be incomplete):",
@@ -243,7 +257,9 @@ def run(args):
         "windows_host": config["windows_host"], "wazuh_agent_id": str(config["wazuh_agent_id"]),
         "window_start": start.isoformat(), "window_end": end.isoformat(),
         "before_seconds": before, "after_seconds": after, "ingestion_grace_seconds": grace,
-        "agent_watermark": collected.get("agent_watermark"),
+        "agent_watermark": watermark,
+        "alert_watermark": collected.get("agent_watermark"),
+        "archive_watermark": archives.get("agent_watermark"),
         "collection_complete": caught_up,
         "queue_alert_rule_ids": collected.get("queue_alert_rule_ids", []),
         "cleanup_link_ids": sorted(cleanup_link_ids),
