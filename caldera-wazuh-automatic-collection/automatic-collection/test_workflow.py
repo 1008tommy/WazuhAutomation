@@ -382,4 +382,13 @@ class ScenarioRunnerTests(unittest.TestCase):
         f=run_scenario.operation_fields({'scenario':'d','adversary_id':'x'},'pid','sid','red')
         self.assertEqual((f['obfuscator'],f['adversary']['adversary_id'],f['group']),('plain-text','x','red'))
 
+    def test_create_payload_sends_objects_not_bare_ids(self):
+        # Caldera's setup_operation reads planner and source with .get('id') and the adversary with
+        # .get('adversary_id'); bare id strings there made POST operations fail with HTTP 500.
+        import run_scenario
+        f=run_scenario.operation_fields({'scenario':'d','adversary_id':'adv'},'planner-id','source-id','red')
+        self.assertEqual(f['planner'],{'id':'planner-id'})
+        self.assertEqual(f['source'],{'id':'source-id'})
+        self.assertEqual(f['adversary'],{'adversary_id':'adv'})
+
 if __name__=='__main__': unittest.main()
