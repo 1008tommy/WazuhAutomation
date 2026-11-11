@@ -4,6 +4,8 @@
   "adversary_id": "33906e88-8a4a-4b7a-a29d-c2b30d05d7e6",
   "planner": "atomic",
   "source": "94ec2647-e6f5-468d-93a5-557e3671b97a",
+  "source_name": "Thief-Lab",
+  "required_fact_traits": ["file.sensitive.extension"],
   "obfuscator": "plain-text",
   "jitter": "2/8",
   "expected_techniques": ["T1074.001", "T1005", "T1560.001", "T1041"]
