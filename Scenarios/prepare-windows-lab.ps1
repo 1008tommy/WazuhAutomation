@@ -182,17 +182,9 @@ if ($CalderaUrl) {
             Add-Check 'CALDERA reachability' 'BLOCKED' "Connection check failed: $($_.Exception.Message)"
         }
     }
-} else {
-    Add-Check 'CALDERA reachability' 'MANUAL' 'Pass -CalderaUrl to check TCP reachability from this VM.'
 }
 
-Add-Check 'CALDERA agent' 'MANUAL' 'Confirm this VM is the intended, trusted agent in CALDERA with cmd and psh executors.'
-Add-Check 'CALDERA server bundle' 'MANUAL' 'Confirm the portable bundle and Stockpile are installed on the CALDERA server.'
-Add-Check 'Thief-Lab fact source' 'MANUAL' 'Select Thief-Lab with file.sensitive.extension=txt when creating its operation.'
-Add-Check 'Wazuh manager' 'MANUAL' 'Confirm this VM is active in Wazuh and Sysmon events reach archives.json.'
-
 $checks | Format-Table -AutoSize -Wrap
-Write-Host 'MANUAL items still require confirmation before an operation.'
 if (@($checks | Where-Object Status -eq 'BLOCKED').Count -gt 0) {
     exit 1
 }
