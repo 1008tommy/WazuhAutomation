@@ -61,8 +61,11 @@ page refreshes with the new result. Operation, cleanup, collection, or rebuild f
 ## How scoring works
 
 Correlation is on the Windows **event time** (`data.win.system.systemTime`), never the manager
-`timestamp`, which lags about 20 minutes here. The collector waits until the agent's event watermark
-passes the window end before scoring, so a lagged detection is never mistaken for a miss. Each step
+`timestamp`, which lags about 20 minutes here. The collector waits up to five minutes for the agent's
+alert watermark to pass the window end. If it does not advance (for example, because there are no
+later alerts), collection continues with `collection_complete=false`; a step without evidence is
+`not_assessable`, not `missed`. Set `max_ingest_wait_seconds` in `config.json` if the lab needs a
+different limit. Each step
 gets one outcome:
 
 `prevented` · `detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
