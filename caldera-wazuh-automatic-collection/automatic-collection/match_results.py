@@ -184,7 +184,8 @@ def _match_records(report, collected, agent_id, window_seconds=120, host_filter=
             alert_time = time_value(alert["timestamp"])
             event_time = time_value(system["systemTime"])
             run_time = time_value(step["run"])
-            # P1: correlate on event time only; the manager timestamp lags ~20 min and must not gate here.
+            # P1: correlate on event time only; the manager timestamp is processing time (it lagged
+            # ~20 min on a run made while the manager was down) and must not gate here.
             # CALDERA report run is link.finish; start from link.collect (agent pickup) when present,
             # else delegation (P5), through finish.
             started = time_value(step.get("collect") or step.get("delegated") or step["run"])

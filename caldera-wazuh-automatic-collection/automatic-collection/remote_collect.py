@@ -13,7 +13,7 @@ def stamp(text):
     return dt.astimezone(timezone.utc)
 
 def event_time(record):
-    """Real event time (Windows systemTime); the manager timestamp lags it by ~20 min in this lab."""
+    """Real event time (Windows systemTime). The manager timestamp is processing time and lags it while the agent cannot reach the manager."""
     system = record.get("data", {}).get("win", {}).get("system", {})
     text = system.get("systemTime") or record.get("timestamp")
     if not text:

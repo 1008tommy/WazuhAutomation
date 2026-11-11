@@ -61,7 +61,10 @@ page refreshes with the new result. Operation, cleanup, collection, or rebuild f
 ## How scoring works
 
 Correlation is on the Windows **event time** (`data.win.system.systemTime`), never the manager
-`timestamp`, which lags about 20 minutes here. The collector waits up to five minutes for the agent's
+`timestamp`, which records when Wazuh processed the event. That is normally a few seconds later, but
+while the agent cannot reach the manager it holds its events and sends them when the manager is back,
+so a run made with the manager down was stamped about 20 minutes late. Start the Wazuh manager first
+and check that the agent is active before a run. The collector waits up to five minutes for the agent's
 alert watermark to pass the window end. If it does not advance (for example, because there are no
 later alerts), collection continues with `collection_complete=false`; a step without evidence is
 `not_assessable`, not `missed`. The collector checks the watermark every 15 seconds by default;
