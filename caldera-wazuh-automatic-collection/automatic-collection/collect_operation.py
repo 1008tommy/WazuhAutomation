@@ -187,7 +187,7 @@ def run(args):
         max_wait = int(config.get("max_ingest_wait_seconds", 300))
         if max_wait < 0:
             raise ValueError("max_ingest_wait_seconds must be nonnegative")
-        poll = max(15, int(config.get("watermark_poll_seconds", 60)))
+        poll = max(15, int(config.get("watermark_poll_seconds", 15)))
         deadline = datetime.now(timezone.utc) + timedelta(seconds=max_wait)
         while True:
             collected = json.loads(remote(client, command, sudo_password))
