@@ -32,5 +32,7 @@ command to run next. The runner refuses to start if any host other than `WIN11-T
 | file-delivery.json | File Delivery and Execution Lab | T1105, T1059.001 |
 | thief-lab.json | Thief-Lab | T1074.001, T1005, T1560.001, T1041 |
 
-`thief-lab.json` uses the bundle's dedicated fact source so only one synthetic file is staged. Revert
+`thief-lab.json` resolves the dedicated `Thief-Lab` fact source by its installed ID or name, checks
+that it contains one `file.sensitive.extension` fact, and verifies CALDERA selected that source for
+the operation. The dashboard log prints the selected extension before launch. Revert
 `WIN11-TEST01` to its snapshot if the runner reports a cleanup failure.
