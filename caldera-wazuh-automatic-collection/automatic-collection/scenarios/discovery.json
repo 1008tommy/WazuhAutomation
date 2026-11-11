@@ -6,5 +6,5 @@
   "source": null,
   "obfuscator": "plain-text",
   "jitter": "2/8",
-  "expected_techniques": ["T1033", "T1087.001", "T1057", "T1135", "T1018", "T1518.001", "T1069"]
+  "expected_techniques": ["T1033", "T1082", "T1057", "T1016", "T1007", "T1518.001"]
 }
