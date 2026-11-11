@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import run_scenario
 import serve_dashboard
@@ -52,6 +52,28 @@ class RunnerFlowTests(unittest.TestCase):
     def test_dashboard_rebuild_failure_is_visible(self):
         message, _ = self.run_with(("op-id", "finished", True), 0, 1)
         self.assertIn("dashboard rebuild failed", message)
+
+    def test_thief_source_is_resolved_by_name_when_bundle_id_differs(self):
+        spec = run_scenario.load_spec(run_scenario.HERE / "scenarios" / "thief-lab.json")
+        client = Mock()
+        client.get.return_value = [
+            {"id": "basic-id", "name": "basic", "facts": [
+                {"trait": "file.sensitive.extension", "value": "png"}]},
+            {"id": "installed-thief-id", "name": "Thief-Lab", "facts": [
+                {"trait": "file.sensitive.extension", "value": "txt"}]},
+        ]
+        self.assertEqual(run_scenario.resolve_source(client, spec), "installed-thief-id")
+
+    def test_caldera_basic_fallback_is_reported_as_an_error(self):
+        spec = run_scenario.load_spec(run_scenario.HERE / "scenarios" / "thief-lab.json")
+        client = Mock()
+        client.adversary.return_value = {"name": "Thief-Lab"}
+        client.planner_id.return_value = "atomic-id"
+        client.get.return_value = [{"id": "installed-thief-id", "name": "Thief-Lab", "facts": [
+            {"trait": "file.sensitive.extension", "value": "txt"}]}]
+        client.create_operation.return_value = {"id": "operation-id", "source": {"id": "basic-id", "name": "basic"}}
+        with self.assertRaisesRegex(ValueError, "selected fact source 'basic'"):
+            run_scenario.run_one(client, spec, "red", "WIN11-TEST01", {})
 
 
 class DashboardLaunchTests(unittest.TestCase):
