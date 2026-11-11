@@ -44,10 +44,10 @@ start it with `python serve_dashboard.py --config 'C:\path\to\config.json'`. The
 is passed to both the CALDERA runner and the Wazuh collector. The SSH password prompt shows the
 configured username and host, so verify them before entering the password.
 
-For the original GitHub checkout on this PC, use:
+For example, if your `config.json` lives in another checkout of this repo:
 
 ```powershell
-python serve_dashboard.py --config "$env:USERPROFILE\Documents\GitHub\WazuhAutomation\caldera-wazuh-automatic-collection\automatic-collection\config.json"
+python serve_dashboard.py --config "<that checkout>\caldera-wazuh-automatic-collection\automatic-collection\config.json"
 ```
 
 Enter the CALDERA red API key and Wazuh SSH/sudo passwords at the hidden terminal prompts, keep
@@ -85,4 +85,5 @@ artifact is recorded but never scored.
 
 ## Tests
 
-`python -m unittest test_workflow` (offline; no server contact).
+`python -m unittest` from this folder runs `test_workflow.py` and `test_dashboard_flow.py` (offline;
+no server contact).
