@@ -66,20 +66,26 @@ Correlation is on the Windows **event time** (`data.win.system.systemTime`), nev
 `timestamp`, which records when Wazuh processed the event. That is normally a few seconds later, but
 while the agent cannot reach the manager it holds its events and sends them when the manager is back,
 so a run made with the manager down was stamped about 20 minutes late. Start the Wazuh manager first
-and check that the agent is active before a run. The collector waits up to five minutes for the agent's
-alert watermark to pass the window end. If it does not advance (for example, because there are no
-later alerts), collection continues with `collection_complete=false`; a step without evidence is
-`not_assessable`, not `missed`. The collector checks the watermark every 15 seconds by default;
-`watermark_poll_seconds` and `max_ingest_wait_seconds` in `config.json` control polling and the
-maximum wait. Each step gets one outcome:
+and check that the agent is active before a run. After the window and 30-second ingestion allowance,
+the collector waits for 90 seconds without any **new scenario-matched** alert or archive record.
+New matching evidence resets that quiet timer; unrelated VM events do not. It polls every 15 seconds
+and stops after five minutes at most. Set `collection_quiet_seconds`, `watermark_poll_seconds`, and
+`max_ingest_wait_seconds` in `config.json` to adjust those intervals. A quiet period is a practical
+stopping rule, not proof that every alert arrived. The existing alert-watermark heuristic still controls
+whether no-evidence steps may be called `missed`; any alert from the agent, including unrelated activity,
+can advance that watermark. Otherwise they remain `not_assessable`. The dashboard
+shows the wait reason and labels that state **alert coverage unverified**. Each step gets one outcome:
 
 `prevented` · `detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
 tag) · `telemetry_only` (log, no alert) · `missed` (nothing, collection verified complete) ·
 `not_assessable`.
 
 Evidence adapters: PowerShell 4104 script blocks, Sysmon process creation (executor, child,
-scheduled-task action), and reported file creation. The `__PSScriptPolicyTest_` / rule 92213 harness
-artifact is recorded but never scored.
+scheduled-task action), and reported file creation. Matching uses the Wazuh agent, Windows host,
+event time and CALDERA process context; process creation also checks the full command, while 4104
+script-block matching uses process ID and time. Review generic alerts before treating them as
+technique-specific detections. The `__PSScriptPolicyTest_` / rule 92213 harness artifact is recorded
+but never scored.
 
 ## Guardrails
 

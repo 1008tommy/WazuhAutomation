@@ -105,6 +105,9 @@ def build_data(runs, scenarios):
             "window_start": window.get("start") or meta.get("window_start"),
             "window_end": window.get("end") or meta.get("window_end"),
             "agent_watermark": meta.get("agent_watermark"),
+            "archive_watermark": meta.get("archive_watermark"),
+            "collection_stop_reason": meta.get("collection_stop_reason"),
+            "collection_quiet_seconds": meta.get("collection_quiet_seconds"),
             "collection_complete": meta.get("collection_complete"),
             "queue_alert_rule_ids": meta.get("queue_alert_rule_ids", []),
             "archive_collection_status": result.get("archive_collection_status") or meta.get("archive_collection_status"),
@@ -306,6 +309,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 .item:first-child{border-top:0;padding-top:0}
 .itop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .itext{margin:5px 0 0;font-size:12.5px;color:var(--ink2)}
+.item .facts{margin:9px 0 6px}
 
 /* run view */
 .crow{display:grid;grid-template-columns:18px 130px minmax(0,1fr);gap:10px;align-items:start;padding:9px 0;border-top:1px solid var(--line2);font-size:13px}
@@ -602,14 +606,16 @@ function renderHealth(){
   const h = $("health"); h.replaceChildren();
   const runs = DATA.runs.filter(r => !state.run || r.run_id === state.run);
   if (!runs.length) { h.append(el("p", "muted", "No runs yet.")); return; }
+  const at = v => v ? fmtSec(v) : "not recorded";
   runs.forEach(r => {
-    const d = el("div", "item"), top = el("div", "itop"), noise = [...new Set(r.harness_rule_ids || [])];
-    top.append(icon(r.collection_complete ? "ok" : "warn"), el("span", "strong", r.collection_complete ? "Collection complete" : "Collection not verified complete"), el("span", "muted", scenarioName(r.scenario)));
-    const facts = [`Window ${fmtSec(r.window_start)} to ${fmtSec(r.window_end)}`, `event stream reached ${fmtSec(r.agent_watermark)}`,
-      noise.length ? `harness noise excluded: rule ${noise.join(", ")} (${r.harness_rule_ids.length}x)` : "no harness noise",
-      (r.queue_alert_rule_ids || []).length ? `agent queue alerts ${r.queue_alert_rule_ids.join(", ")}` : "no agent queue alerts"];
-    d.append(top, el("p", "itext", facts.join(" · ")), el("p", "small", r.run_id));
-    if (!r.collection_complete) d.append(el("p", "itext", "Missed is not scored for this run: a step without evidence is not assessable."));
+    const d = el("div", "item"), top = el("div", "itop"), facts = el("dl", "facts"), noise = [...new Set(r.harness_rule_ids || [])];
+    top.append(icon(r.collection_complete ? "ok" : "warn"), el("span", "strong", r.collection_complete ? "Alert watermark passed the window end" : "Alert coverage unverified"), el("span", "muted", scenarioName(r.scenario)));
+    [["Window", `${at(r.window_start)} to ${at(r.window_end)}`], ["Latest alert event", at(r.agent_watermark)], ["Latest archive event", at(r.archive_watermark)],
+     ["Wait ended", r.collection_stop_reason ? r.collection_stop_reason.replaceAll("_", " ") : "not recorded"],
+     ["Agent queue alerts", (r.queue_alert_rule_ids || []).join(", ") || "none"], ["Harness rules excluded", noise.join(", ") || "none"]]
+      .forEach(([k, v]) => facts.append(el("dt", null, k), el("dd", null, v)));
+    d.append(top, facts, el("p", "small", r.run_id));
+    if (!r.collection_complete) d.append(el("p", "itext", "Steps without evidence stay not assessable and are never scored as missed for this run."));
     h.append(d);
   });
 }

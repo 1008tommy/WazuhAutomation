@@ -57,15 +57,11 @@ def technique_match_kind(step_technique, alert_mitre):
     return "different"
 
 def collection_complete(collected, archives, window_end):
-    """Never score missed unless collection is verified complete (CLAUDE hard rule).
-
-    The agent's event stream must have passed the window end: the newest event time in the
-    alerts or, on a quiet endpoint that raised no later alert, in the archives (every event).
-    """
+    """Never score missed unless collection is verified complete (CLAUDE hard rule)."""
     if not archives or archives.get("collection_status") != "success":
         return False
-    marks = [time_value(m) for m in (collected.get("agent_watermark"), archives.get("agent_watermark")) if m]
-    if not marks or max(marks) < window_end:
+    watermark = collected.get("agent_watermark")
+    if not watermark or time_value(watermark) < window_end:
         return False
     return not set(collected.get("queue_alert_rule_ids", [])) & {"203", "204"}
 

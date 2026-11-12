@@ -8,6 +8,7 @@
   "before_seconds": 30,
   "after_seconds": 90,
   "ingestion_grace_seconds": 30,
+  "collection_quiet_seconds": 90,
   "max_ingest_wait_seconds": 300,
   "watermark_poll_seconds": 15
 }
