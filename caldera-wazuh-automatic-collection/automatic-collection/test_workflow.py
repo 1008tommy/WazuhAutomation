@@ -350,6 +350,32 @@ class OrchestrationTests(unittest.TestCase):
             self.assertEqual(result['event_collection'],'confirmed')
             self.assertEqual(result['detection'],'no_matching_alert_observed')
 
+    def test_archive_progress_ends_wait_without_claiming_alert_completeness(self):
+        import argparse
+        import collect_operation
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            config=root/'config.json'
+            config.write_text(json.dumps({'caldera_url':'http://lab:8888','wazuh_host':'lab',
+                'windows_host':'Test','wazuh_agent_id':'002'}))
+            args=argparse.Namespace(config=config,list=False,
+                operation='338ef596-0594-4935-9938-d8485c33c8f1',out=root/'run')
+            alerts=export([]); alerts['agent_watermark']='2020-01-02T00:04:00+00:00'
+            archives=export([],True); archives['agent_watermark']='2020-01-02T00:06:00+00:00'
+            with patch.object(collect_operation,'api',return_value=report()), \
+                 patch.object(collect_operation,'connect',return_value=MagicMock()), \
+                 patch.object(collect_operation.getpass,'getpass',return_value='synthetic-test-only'), \
+                 patch.object(collect_operation,'remote',side_effect=[str(datetime.now(timezone.utc).timestamp()),
+                     json.dumps(alerts),json.dumps(archives)]), \
+                 patch.object(collect_operation,'select_window',return_value=(remote_collect.stamp(START),remote_collect.stamp(END),[])):
+                collect_operation.run(args)
+            metadata=json.loads((args.out/'run-metadata.json').read_text())
+            result=json.loads((args.out/'results'/'results.json').read_text())['results'][0]
+            self.assertEqual(metadata['collection_stop_reason'],'archive_watermark')
+            self.assertFalse(metadata['collection_complete'])
+            self.assertEqual(result['outcome'],'not_assessable')
+
 class ScenarioRunnerTests(unittest.TestCase):
     def test_validate_spec_rejects_evasion_and_bad_fields(self):
         import run_scenario
