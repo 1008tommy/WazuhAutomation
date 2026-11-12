@@ -303,7 +303,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 .facts dd{margin:0;color:var(--ink2)}
 .evid{white-space:pre-wrap;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--ink2);margin:0;background:#fff;border:1px solid var(--line2);border-radius:7px;padding:10px 12px}
 
-/* gaps and run health */
+/* gaps and evidence collection */
 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
 .two .panel{margin-bottom:0}
 .item{padding:11px 0;border-top:1px solid var(--line2)}
@@ -311,6 +311,9 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 .itop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .itext{margin:5px 0 0;font-size:12.5px;color:var(--ink2)}
 .item .facts{margin:9px 0 6px}
+.health-details{margin-top:10px;font-size:12.5px;color:var(--ink2)}
+.health-details summary{cursor:pointer}
+.health-details .facts{margin:10px 0 6px}
 
 /* run view */
 .crow{display:grid;grid-template-columns:18px 130px minmax(0,1fr);gap:10px;align-items:start;padding:9px 0;border-top:1px solid var(--line2);font-size:13px}
@@ -390,7 +393,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
       </section>
       <div class="two">
         <section class="panel"><div class="ph"><h2>Detection gaps</h2></div><div id="gaps"></div></section>
-        <section class="panel"><div class="ph"><h2>Run health</h2></div><div id="health"></div></section>
+        <section class="panel"><div class="ph"><h2>Evidence collection</h2></div><div id="health"></div></section>
       </div>
     </section>
 
@@ -609,13 +612,33 @@ function renderHealth(){
   const at = v => v ? fmtSec(v) : "not recorded";
   runs.forEach(r => {
     const d = el("div", "item"), top = el("div", "itop"), facts = el("dl", "facts"), noise = [...new Set(r.harness_rule_ids || [])];
-    top.append(icon(r.collection_complete ? "ok" : "warn"), el("span", "strong", r.collection_complete ? "Alert watermark passed the window end" : "Alert coverage unverified"), el("span", "muted", scenarioName(r.scenario)));
+    const steps = DATA.rows.filter(row => row.run_id === r.run_id);
+    const observed = steps.filter(row => row.event_collection === "confirmed" ||
+      ["prevented", "detected_labelled", "detected_unlabelled", "telemetry_only"].includes(row.outcome)).length;
+    const missing = steps.length - observed;
+    const queueIssue = (r.queue_alert_rule_ids || []).length > 0;
+    const archiveIssue = !!r.archive_collection_status && r.archive_collection_status !== "success";
+    const issue = queueIssue || archiveIssue;
+    const headline = steps.length ? `${observed} of ${steps.length} steps have Wazuh evidence` : "No scored steps";
+    top.append(icon(issue ? "warn" : !steps.length || missing ? "wait" : "ok"), el("span", "strong", headline), el("span", "muted", scenarioName(r.scenario)));
+    d.append(top);
+    if (queueIssue) d.append(el("p", "itext", "Wazuh reported an agent queue warning; review whether telemetry was lost."));
+    if (archiveIssue) d.append(el("p", "itext", "Raw archive evidence was unavailable; review this run before comparing coverage."));
+    if (!issue && missing) d.append(el("p", "itext", r.collection_complete
+      ? `${missing} step${missing === 1 ? "" : "s"} had no matching evidence; review the scored outcomes.`
+      : `${missing} step${missing === 1 ? "" : "s"} without matching evidence remain not assessable.`));
+    const technical = el("details", "health-details");
+    technical.append(el("summary", null, "Collection timing and checks"));
     [["Window", `${at(r.window_start)} to ${at(r.window_end)}`], ["Latest alert event", at(r.agent_watermark)], ["Latest archive event", at(r.archive_watermark)],
      ["Wait ended", r.collection_stop_reason ? r.collection_stop_reason.replaceAll("_", " ") : "not recorded"],
      ["Agent queue alerts", (r.queue_alert_rule_ids || []).join(", ") || "none"], ["Harness rules excluded", noise.join(", ") || "none"]]
       .forEach(([k, v]) => facts.append(el("dt", null, k), el("dd", null, v)));
-    d.append(top, facts, el("p", "small", r.run_id));
-    if (!r.collection_complete) d.append(el("p", "itext", "Steps without evidence stay not assessable and are never scored as missed for this run."));
+    technical.append(facts, el("p", "small", r.run_id));
+    if (!r.collection_complete) technical.append(el("p", "small",
+      !r.agent_watermark || new Date(r.agent_watermark) < new Date(r.window_end)
+        ? "No later alert event was observed after the window end. This limits no-evidence scoring; it does not indicate a collection error."
+        : "A collection check limited no-evidence scoring; review the archive and queue details above."));
+    d.append(technical);
     h.append(d);
   });
 }
