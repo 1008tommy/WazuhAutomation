@@ -74,10 +74,11 @@ and stops after five minutes at most. Set `collection_quiet_seconds`, `watermark
 stopping rule, not proof that every alert arrived. The existing alert-watermark heuristic still controls
 whether no-evidence steps may be called `missed`; any alert from the agent, including unrelated activity,
 can advance that watermark. Otherwise they remain `not_assessable`. The dashboard
-shows the wait reason and labels that state **alert coverage unverified**. Each step gets one outcome:
+summarizes how many steps have matching Wazuh evidence. It flags archive or queue problems and keeps
+watermark timing under **Collection timing and checks**. Each step gets one outcome:
 
 `prevented` · `detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
-tag) · `telemetry_only` (log, no alert) · `missed` (nothing, collection verified complete) ·
+tag) · `telemetry_only` (log, no alert) · `missed` (no evidence and collection progress checks passed) ·
 `not_assessable`.
 
 Evidence adapters: PowerShell 4104 script blocks, Sysmon process creation (executor, child,
