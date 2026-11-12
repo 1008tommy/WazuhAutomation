@@ -66,8 +66,9 @@ the collector waits for 90 seconds without any **new scenario-matched** alert or
 New matching evidence resets that quiet timer; unrelated VM events do not. It polls every 15 seconds
 and stops after five minutes at most. Set `collection_quiet_seconds`, `watermark_poll_seconds`, and
 `max_ingest_wait_seconds` in `config.json` to adjust those intervals. A quiet period is a practical
-stopping rule, not proof that every alert arrived. The existing alert-watermark check still controls
-whether no-evidence steps may be called `missed`; otherwise they remain `not_assessable`. The dashboard
+stopping rule, not proof that every alert arrived. The existing alert-watermark heuristic still controls
+whether no-evidence steps may be called `missed`; any alert from the agent, including unrelated activity,
+can advance that watermark. Otherwise they remain `not_assessable`. The dashboard
 shows the wait reason and labels that state **alert coverage unverified**. Each step gets one outcome:
 
 `prevented` · `detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
