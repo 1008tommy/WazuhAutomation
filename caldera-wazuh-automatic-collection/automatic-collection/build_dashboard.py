@@ -203,20 +203,21 @@ button,select,input{font:inherit}
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 
 /* sidebar */
-.side{background:var(--side);border-right:1px solid var(--side-line);padding:22px 14px 18px;display:flex;flex-direction:column;gap:26px;position:sticky;top:0;height:100vh}
-.brand{display:flex;gap:10px;align-items:center;padding:0 8px}
-.mark{width:28px;height:28px;border-radius:7px;background:var(--accent);display:grid;place-items:center;flex:none}
-.bname{font-weight:600;font-size:14px;line-height:1.2;letter-spacing:-.01em}
-.bsub{font-size:12px;color:var(--muted);margin-top:1px}
-.nav{display:flex;flex-direction:column;gap:2px}
+.side{background:var(--side);border-right:1px solid var(--side-line);padding:0 0 18px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:24px 22px 20px;border-bottom:1px solid var(--side-line)}
+.bname{font-weight:650;font-size:16px;line-height:1.25;letter-spacing:-.015em;color:var(--ink)}
+.ctx{margin:0;padding:16px 22px;border-bottom:1px solid var(--side-line);display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;font-size:12.5px}
+.ctx dt{color:var(--muted)}
+.ctx dd{margin:0;color:var(--ink);font-weight:500;overflow-wrap:anywhere}
+.nav{display:flex;flex-direction:column;gap:2px;padding:16px 12px 0}
 .nav a{position:relative;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;color:var(--ink2);text-decoration:none;font-weight:500}
 .nav a svg{flex:none;color:var(--muted)}
 .nav a:hover{background:var(--wash)}
 .nav a.on{background:var(--wash);color:var(--accent-ink)}
 .nav a.on svg{color:var(--accent)}
-.nav a.on::before{content:"";position:absolute;left:-14px;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.nav a.on::before{content:"";position:absolute;left:-12px;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
 .live{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:auto}
-.side-foot{margin-top:auto;padding:0 8px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.side-foot{margin-top:auto;padding:14px 22px 0;border-top:1px solid var(--side-line);font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
 .side-foot b{font-weight:600;color:var(--ink2)}
 
 /* page */
@@ -338,8 +339,9 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 @media (max-width:860px){
   .app{grid-template-columns:minmax(0,1fr)}
   .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:12px 16px;border-right:0;border-bottom:1px solid var(--side-line)}
-  .brand{padding:0}
-  .nav{flex-direction:row;flex-wrap:wrap}
+  .brand{padding:0;border:0}
+  .ctx{display:none}
+  .nav{flex-direction:row;flex-wrap:wrap;padding:0}
   .nav a.on::before{display:none}
   .side-foot{display:none}
   .main{padding:20px 16px 48px}
@@ -354,10 +356,8 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand">
-      <span class="mark" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="0" y="0" width="6" height="6" rx="1.5" fill="#fff"/><rect x="8" y="0" width="6" height="6" rx="1.5" fill="#fff" opacity=".55"/><rect x="0" y="8" width="6" height="6" rx="1.5" fill="#fff" opacity=".55"/><rect x="8" y="8" width="6" height="6" rx="1.5" fill="#fff"/></svg></span>
-      <div><div class="bname">Control Validation</div><div class="bsub">Wazuh on WIN11-TEST01</div></div>
-    </div>
+    <div class="brand"><div class="bname">Security Control<br>Validation</div></div>
+    <dl class="ctx" id="ctx"></dl>
     <nav class="nav" aria-label="Views">
       <a href="#results" data-v="results"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 13V8M8 13V3M13 13V6"/></svg>Results</a>
       <a href="#run" data-v="run"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="M6.7 5.6l3.6 2.4-3.6 2.4z" fill="currentColor"/></svg>Run a scenario<span class="live" id="liveDot" hidden title="A scenario is running"></span></a>
@@ -368,7 +368,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
   <main class="main"><div class="inner">
     <section class="view" id="view-results" aria-labelledby="h-results">
       <div class="phead">
-        <div><h1 id="h-results">Results</h1><p class="sub" id="meta"></p></div>
+        <div><h1 id="h-results">Results</h1></div>
         <div class="actions"><button class="btn" id="dlCsv" type="button">Export CSV</button><button class="btn" id="dlNav" type="button">Navigator layer</button></div>
       </div>
       <div class="filters" role="group" aria-label="Filters">
@@ -625,7 +625,6 @@ function fill(id, label, values, show){
 }
 function render(){
   const rows = filtered();
-  $("meta").textContent = `${DATA.control} · ${plural(DATA.rows.length, "scored step")} · ${plural(DATA.runs.length, "run")} · generated ${fmtTime(DATA.generated_at)}`;
   renderKpis(rows); renderSplit(rows); renderMatrix(rows); renderTable(rows); renderGaps(rows); renderHealth();
 }
 
@@ -754,8 +753,10 @@ $("fOutcome").onchange = e => { state.outcome = e.target.value; render(); };
 $("search").oninput = e => { state.search = e.target.value; render(); };
 $("dlCsv").onclick = () => download("results-combined.csv", toCsv(filtered()), "text/csv");
 $("dlNav").onclick = () => download("navigator-wazuh.json", navLayer(filtered()), "application/json");
-const foot = $("sideFoot");
-foot.append(el("b", null, SERVED ? "Live console" : "Static report"), el("span", null, `${plural(DATA.runs.length, "run")} · ${plural(DATA.rows.length, "step")}`), el("span", null, "Updated " + fmtTime(DATA.generated_at)));
+const hosts = [...new Set(DATA.rows.map(r => r.host).filter(Boolean))];
+[["Control", DATA.control], ["Endpoint", hosts.join(", ") || "No runs yet"], ["Scored", `${plural(DATA.rows.length, "step")}, ${plural(DATA.runs.length, "run")}`]]
+  .forEach(([k, v]) => $("ctx").append(el("dt", null, k), el("dd", null, v)));
+$("sideFoot").append(el("b", null, SERVED ? "Live console" : "Static report"), el("span", null, "Updated " + fmtTime(DATA.generated_at)));
 showView(); render(); renderRun();
 </script>
 </body>
