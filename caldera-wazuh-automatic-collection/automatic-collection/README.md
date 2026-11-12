@@ -35,6 +35,12 @@ The technique choices follow the selected run, scenario and tactic. They filter 
 tested; the Wazuh alert's ATT&CK tag remains a separate result column. **Clear filters** restores
 the full view.
 
+Outcome colours are chosen for colour-blind readers: blue when Wazuh raised an alert (darker is
+stronger), amber for a log without an alert, red for missed and grey for not assessable. Every
+outcome also has its own glyph (tick, !, eye, cross, ?) and a text label, so no result depends on
+colour alone. In **Run a scenario**, each scenario card lists its ATT&CK tactics in step order, read
+from that scenario's CALDERA adversary export in `Scenarios/` (PyYAML, from `requirements.txt`).
+
 ### Try a dashboard launch
 
 The generated `dashboard/index.html` (or `dashboard-preview/index.html`) is an offline report and
