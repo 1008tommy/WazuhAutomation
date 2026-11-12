@@ -61,10 +61,11 @@ page refreshes with the new result. Operation, cleanup, collection, or rebuild f
 ## How scoring works
 
 Correlation is on the Windows **event time** (`data.win.system.systemTime`), never the manager
-`timestamp`, which lags about 20 minutes here. The collector waits up to five minutes for the agent's
-alert watermark to pass the window end. If it does not advance (for example, because there are no
-later alerts), collection continues with `collection_complete=false`; a step without evidence is
-`not_assessable`, not `missed`. The collector checks the watermark every 15 seconds by default;
+`timestamp`, which lags about 20 minutes here. The collector checks the agent's alert and archive
+event watermarks after the collection window. A newer archive event can end the wait when no new
+alert occurs, but it does not establish alert completeness: `collection_complete` stays false and a
+step without evidence is `not_assessable`, not `missed`. If neither watermark passes the window end,
+the collector waits up to five minutes. It checks every 15 seconds by default;
 `watermark_poll_seconds` and `max_ingest_wait_seconds` in `config.json` control polling and the
 maximum wait. Each step gets one outcome:
 
