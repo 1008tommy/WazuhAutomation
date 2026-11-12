@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, quote
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
-from match_results import time_value
+from match_results import collection_complete as assess_collection_complete, time_value
 
 HERE = Path(__file__).resolve().parent
 
@@ -34,6 +34,23 @@ def api(base, key, path, body=None):
             return json.load(reply)
     except HTTPError as error:
         raise ValueError(f"CALDERA API HTTP {error.code}; check URL, API key and operation ID") from None
+
+
+def archive_snapshot(client, command, sudo_password, agent, start, end):
+    try:
+        return json.loads(remote(client, command + " --source archives", sudo_password))
+    except (ValueError, OSError, EOFError) as error:
+        return {
+            "collection_status": "error", "agent_id": str(agent),
+            "start": start.isoformat(), "end": end.isoformat(),
+            "source": "/var/ossec/logs/archives", "event_count": 0, "events": [],
+            "files_scanned": [], "error": str(error),
+            "collected_at": datetime.now(timezone.utc).isoformat()
+        }
+
+
+def past_window(watermark, end):
+    return bool(watermark and time_value(watermark) >= end)
 
 def select_window(report, host, before=30, after=90):
     if not report.get("finish"):
@@ -182,40 +199,48 @@ def run(args):
         command = shlex.join(["sudo", "-k", "-S", "-p", "", "--", "python3", "-c", bootstrap,
                               "--agent", str(config["wazuh_agent_id"]),
                               "--start", start.isoformat(), "--end", end.isoformat()])
-        # P2: poll until the agent's event watermark passes the window end (ingestion lag),
-        # or a configurable maximum wait elapses. Never score missed on an incomplete run.
+        # Archives contain non-alert events, so they can show stream progress when
+        # the alert watermark stalls. Only the alert watermark may establish the
+        # existing collection_complete condition used for missed scoring.
         max_wait = int(config.get("max_ingest_wait_seconds", 300))
         if max_wait < 0:
             raise ValueError("max_ingest_wait_seconds must be nonnegative")
         poll = max(15, int(config.get("watermark_poll_seconds", 15)))
         deadline = datetime.now(timezone.utc) + timedelta(seconds=max_wait)
+        archives = None
         while True:
             collected = json.loads(remote(client, command, sudo_password))
             watermark = collected.get("agent_watermark")
-            caught_up = bool(watermark and time_value(watermark) >= end)
-            if caught_up or datetime.now(timezone.utc) >= deadline:
+            caught_up = past_window(watermark, end)
+            if caught_up:
+                stop_reason = "alert_watermark"
+                break
+            archives = archive_snapshot(client, command, sudo_password,
+                                        config["wazuh_agent_id"], start, end)
+            archive_watermark = archives.get("agent_watermark")
+            if archives.get("collection_status") == "success" and past_window(archive_watermark, end):
+                stop_reason = "archive_watermark"
+                print(f"Archive watermark {archive_watermark} passed the window end; "
+                      "alert completeness remains unverified.", flush=True)
+                break
+            if datetime.now(timezone.utc) >= deadline:
+                stop_reason = "timeout"
                 break
             remaining = max(0, (deadline - datetime.now(timezone.utc)).total_seconds())
             delay = min(poll, remaining)
-            print(f"Ingestion watermark {watermark} is behind window end {end.isoformat()}; "
+            print(f"Alert watermark {watermark} and archive watermark {archive_watermark} "
+                  f"are behind window end {end.isoformat()}; "
                   f"waiting {int(delay)+1}s (at most {int(remaining)+1}s remain)...", flush=True)
             time.sleep(delay)
         print("Collected alerts:", collected.get("alert_count"),
               "| watermark:", collected.get("agent_watermark"),
-              "| collection complete:", caught_up, flush=True)
+              "| watermark past window:", caught_up, flush=True)
         if collected.get("queue_alert_rule_ids"):
             print("Agent-queue saturation rules in window (telemetry may be incomplete):",
                   ";".join(collected["queue_alert_rule_ids"]), flush=True)
-        try:
-            archives = json.loads(remote(client, command + " --source archives", sudo_password))
-        except (ValueError, OSError, EOFError) as error:
-            archives = {
-                "collection_status": "error", "agent_id": str(config["wazuh_agent_id"]),
-                "start": start.isoformat(), "end": end.isoformat(),
-                "source": "/var/ossec/logs/archives", "event_count": 0, "events": [],
-                "files_scanned": [], "error": str(error),
-                "collected_at": datetime.now(timezone.utc).isoformat()
-            }
+        if archives is None:
+            archives = archive_snapshot(client, command, sudo_password,
+                                        config["wazuh_agent_id"], start, end)
         print("Archive collection:", archives.get("collection_status"),
               "events:", archives.get("event_count"), flush=True)
         if archives.get("incomplete_tail_files"):
@@ -223,6 +248,8 @@ def run(args):
                   ", ".join(archives["incomplete_tail_files"]), flush=True)
         if archives.get("collection_status") != "success":
             print("Archive evidence unavailable:", archives.get("error", "unknown reason"))
+        complete = assess_collection_complete(collected, archives, end)
+        print("Collection complete:", complete, "| stop reason:", stop_reason, flush=True)
     finally:
         client.close()
     if collected.get("collection_status") != "success":
@@ -244,7 +271,9 @@ def run(args):
         "window_start": start.isoformat(), "window_end": end.isoformat(),
         "before_seconds": before, "after_seconds": after, "ingestion_grace_seconds": grace,
         "agent_watermark": collected.get("agent_watermark"),
-        "collection_complete": caught_up,
+        "archive_watermark": archives.get("agent_watermark"),
+        "collection_stop_reason": stop_reason,
+        "collection_complete": complete,
         "queue_alert_rule_ids": collected.get("queue_alert_rule_ids", []),
         "cleanup_link_ids": sorted(cleanup_link_ids),
         "collected_at": collected.get("collected_at"),
