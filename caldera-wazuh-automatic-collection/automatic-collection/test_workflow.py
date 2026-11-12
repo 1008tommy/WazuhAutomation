@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import patch
+import build_dashboard
 import remote_collect
 from match_results import correlate
 
@@ -510,5 +511,22 @@ class ScenarioRunnerTests(unittest.TestCase):
         self.assertEqual(f['planner'],{'id':'planner-id'})
         self.assertEqual(f['source'],{'id':'source-id'})
         self.assertEqual(f['adversary'],{'adversary_id':'adv'})
+
+@unittest.skipIf(build_dashboard.yaml is None, 'PyYAML is not installed')
+class ScenarioTacticTests(unittest.TestCase):
+    def test_scenario_cards_take_tactics_from_the_caldera_exports(self):
+        specs = build_dashboard.load_scenarios(Path(__file__).parent / 'scenarios')
+        self.assertEqual({s['scenario']: s['tactics'] for s in specs},
+                         {'discovery': ['discovery'], 'file-delivery': ['command-and-control', 'execution'],
+                          'renamed-utility': ['defense-evasion'], 'scheduled-task': ['persistence', 'execution'],
+                          'thief-lab': ['collection', 'exfiltration']})
+
+    def test_unreadable_export_is_skipped_and_repeats_are_listed_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'good.yaml').write_text('id: a1\natomic_ordering:\n- x\n- y\nabilities:\n x:\n  tactic: Defense Evasion\n'
+                                                 ' y:\n  tactic: defense-evasion\n', encoding='utf-8')
+            Path(folder, 'broken.yaml').write_text('id: b2\natomic_ordering: [x\n', encoding='utf-8')
+            with patch('sys.stderr'):
+                self.assertEqual(build_dashboard.load_tactics(folder), {'a1': ['defense-evasion']})
 
 if __name__=='__main__': unittest.main()

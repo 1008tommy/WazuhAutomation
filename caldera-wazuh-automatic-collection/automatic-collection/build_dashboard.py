@@ -7,7 +7,8 @@ Reads every <runs>/*/results/results.json (plus the sibling run-metadata.json) a
 
 The same page is served live by serve_dashboard.py, where the Launch view can start scenarios;
 opened as a file it stays a static, air-gapped report and the Launch view shows the exact command.
-No third-party packages; vanilla JS so it opens with a double-click offline.
+The page is vanilla JS with no external fetches, so it opens with a double-click offline. PyYAML
+(in requirements.txt) reads each scenario's ATT&CK tactics from the CALDERA adversary exports.
 """
 import argparse
 import csv
@@ -16,7 +17,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import yaml   # only the scenario tactics need it; the rest of the report builds without it
+except ImportError:
+    yaml = None
+
 HERE = Path(__file__).resolve().parent
+EXPORTS = HERE.parents[1] / "Scenarios"   # CALDERA adversary exports, one YAML per scenario
 
 NAV_SCORE = {"prevented": 100, "detected_labelled": 100, "detected_unlabelled": 75,
              "telemetry_only": 40, "missed": 0, "not_assessable": 0}
@@ -71,7 +78,29 @@ def load_runs(runs_dir):
     return runs
 
 
-def load_scenarios(scenarios_dir):
+def load_tactics(exports_dir):
+    """Map each adversary ID to its ATT&CK tactics, read from the CALDERA adversary exports.
+
+    Tactics follow the step order in atomic_ordering, and a tactic used by several steps appears
+    once, so Thief-Lab gives ["collection", "exfiltration"]."""
+    if yaml is None:
+        print("PyYAML is not installed, so the scenario cards show no tactics: "
+              "python -m pip install -r requirements.txt", file=sys.stderr)
+        return {}
+    tactics = {}
+    for path in sorted(Path(exports_dir).glob("*.yaml")):
+        try:
+            export = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+            abilities = export["abilities"]
+            steps = [norm_tactic(abilities[ability_id]["tactic"]) for ability_id in export["atomic_ordering"]]
+            tactics[export["id"]] = list(dict.fromkeys(t for t in steps if t))
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as error:
+            print(f"Skipping {path.name}: {error!r}", file=sys.stderr)
+    return tactics
+
+
+def load_scenarios(scenarios_dir, exports_dir=EXPORTS):
+    tactics = load_tactics(exports_dir)
     specs = []
     for path in sorted(Path(scenarios_dir).glob("*.json")):
         try:
@@ -80,6 +109,7 @@ def load_scenarios(scenarios_dir):
             continue
         specs.append({"scenario": spec.get("scenario"), "name": spec.get("name"),
                       "adversary_id": spec.get("adversary_id"),
+                      "tactics": tactics.get(spec.get("adversary_id"), []),
                       "expected_techniques": spec.get("expected_techniques", []),
                       "file": f"scenarios/{path.name}"})
     return specs
@@ -329,6 +359,8 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 .scard{border:1px solid var(--line);border-radius:9px;padding:14px 15px;display:flex;flex-direction:column;gap:9px}
 .scard h3{margin:0;font-size:14px;font-weight:600}
 .scard .sid{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--muted);margin-top:-6px}
+.tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{font-size:12px;font-weight:500;color:var(--ink2);background:var(--line2);border-radius:5px;padding:2px 8px}
 .pills{display:flex;flex-wrap:wrap;gap:5px}
 .pill{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--ink2);border:1px solid var(--line);border-radius:5px;padding:0 6px}
 .last{display:flex;flex-direction:column;gap:6px}
@@ -778,13 +810,16 @@ function lastRun(sp){
 function renderScenarios(){
   const wrap = $("scn"); wrap.replaceChildren();
   (DATA.scenarios || []).forEach(sp => {
-    const card = el("div", "scard"), pills = el("div", "pills"), last = el("div", "last"), act = el("div", "act"), rows = lastRun(sp);
+    const card = el("div", "scard"), tags = el("div", "tags"), pills = el("div", "pills"), last = el("div", "last"), act = el("div", "act"), rows = lastRun(sp);
+    (sp.tactics || []).forEach(t => tags.append(el("span", "tag", tacticName(t))));   // from the scenario's CALDERA export
     (sp.expected_techniques || []).forEach(t => pills.append(el("span", "pill", t)));
     if (rows) last.append(segBar(rows, false), el("div", "small", `Last run ${fmtTime(rows[0].run_utc)} · ${rows.filter(r => isDetected(r.outcome)).length} of ${rows.length} detected`));
     else last.append(el("div", "small", "Not run yet"));
     const b = el("button", SERVED ? "btn pri launch" : "btn", SERVED ? "Launch" : "Show command");
     b.type = "button"; b.onclick = () => SERVED ? launch(sp) : showCmd(sp); act.append(b);
-    card.append(el("h3", null, sp.name || sp.scenario), el("div", "sid", sp.file || sp.scenario), pills, last, act);
+    card.append(el("h3", null, sp.name || sp.scenario), el("div", "sid", sp.file || sp.scenario));
+    if (tags.childElementCount) card.append(tags);
+    card.append(pills, last, act);
     wrap.append(card);
   });
 }
