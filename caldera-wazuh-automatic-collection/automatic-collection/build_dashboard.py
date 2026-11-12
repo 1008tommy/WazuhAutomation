@@ -105,6 +105,9 @@ def build_data(runs, scenarios):
             "window_start": window.get("start") or meta.get("window_start"),
             "window_end": window.get("end") or meta.get("window_end"),
             "agent_watermark": meta.get("agent_watermark"),
+            "archive_watermark": meta.get("archive_watermark"),
+            "collection_stop_reason": meta.get("collection_stop_reason"),
+            "collection_quiet_seconds": meta.get("collection_quiet_seconds"),
             "collection_complete": meta.get("collection_complete"),
             "queue_alert_rule_ids": meta.get("queue_alert_rule_ids", []),
             "archive_collection_status": result.get("archive_collection_status") or meta.get("archive_collection_status"),
@@ -404,10 +407,12 @@ function renderHealth(){
   DATA.runs.forEach(r=>{const d=el("div",{className:"note"});d.style.borderLeftColor=css(r.collection_complete?"detected_labelled":"missed");
     d.innerHTML=`<b>${esc(r.run_id)}</b> <span class="muted">(${esc(r.scenario||"")})</span><br>
       <span class="muted">Window</span> ${esc(r.window_start||"?")} &rarr; ${esc(r.window_end||"?")} ·
-      <span class="muted">watermark</span> ${esc(r.agent_watermark||"?")} ·
-      collection ${r.collection_complete?"complete":"<b class='bad'>incomplete</b> (missed not scored)"} ·
+      <span class="muted">latest alert event</span> ${esc(r.agent_watermark||"?")} ·
+      <span class="muted">latest archive event</span> ${esc(r.archive_watermark||"?")} ·
+      ${r.collection_complete?"alert watermark passed window end":"<b class='bad'>alert coverage unverified</b> (no-evidence steps not scored as misses)"} ·
+      <span class="muted">wait ended</span> ${esc((r.collection_stop_reason||"unknown").replaceAll("_"," "))} ·
       <span class="muted">queue</span> ${(r.queue_alert_rule_ids||[]).join(",")||"none"} ·
-      <span class="muted">harness excluded</span> ${(r.harness_rule_ids||[]).join(",")||"none"}`;
+      <span class="muted">harness rules excluded</span> ${[...new Set(r.harness_rule_ids||[])].join(",")||"none"}`;
     h.append(d);});
 }
 function renderLaunch(){
