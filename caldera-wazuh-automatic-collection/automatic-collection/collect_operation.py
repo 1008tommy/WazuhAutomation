@@ -214,7 +214,8 @@ def run(args):
                               "--agent", str(config["wazuh_agent_id"]),
                               "--start", start.isoformat(), "--end", end.isoformat()])
         # Wait for scenario-matched evidence to settle. Unrelated agent activity
-        # does not reset the timer or make a quiet alert stream appear complete.
+        # does not reset the timer; completeness scoring remains a separate
+        # alert-watermark heuristic that can be advanced by unrelated alerts.
         max_wait = int(config.get("max_ingest_wait_seconds", 300))
         if max_wait < 0:
             raise ValueError("max_ingest_wait_seconds must be nonnegative")
