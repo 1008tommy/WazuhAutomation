@@ -335,7 +335,7 @@ class OrchestrationTests(unittest.TestCase):
             root=Path(td)
             config=root/'config.json'
             config.write_text(json.dumps({'caldera_url':'http://lab:8888','wazuh_host':'lab',
-                'windows_host':'Test','wazuh_agent_id':'002'}))
+                'windows_host':'Test','wazuh_agent_id':'002','collection_quiet_seconds':0}))
             args=argparse.Namespace(config=config,list=False,operation='338ef596-0594-4935-9938-d8485c33c8f1',out=root/'run')
             rep=report(); archives=export([event()],True)
             alerts=export([]); alerts['agent_watermark']=END; alerts['queue_alert_rule_ids']=[]
@@ -350,7 +350,7 @@ class OrchestrationTests(unittest.TestCase):
             self.assertEqual(result['event_collection'],'confirmed')
             self.assertEqual(result['detection'],'no_matching_alert_observed')
 
-    def test_archive_progress_ends_wait_without_claiming_alert_completeness(self):
+    def test_quiet_period_does_not_claim_alert_completeness_from_archive_progress(self):
         import argparse
         import collect_operation
         from unittest.mock import MagicMock
@@ -358,7 +358,7 @@ class OrchestrationTests(unittest.TestCase):
             root=Path(td)
             config=root/'config.json'
             config.write_text(json.dumps({'caldera_url':'http://lab:8888','wazuh_host':'lab',
-                'windows_host':'Test','wazuh_agent_id':'002'}))
+                'windows_host':'Test','wazuh_agent_id':'002','collection_quiet_seconds':0}))
             args=argparse.Namespace(config=config,list=False,
                 operation='338ef596-0594-4935-9938-d8485c33c8f1',out=root/'run')
             alerts=export([]); alerts['agent_watermark']='2020-01-02T00:04:00+00:00'
@@ -372,9 +372,62 @@ class OrchestrationTests(unittest.TestCase):
                 collect_operation.run(args)
             metadata=json.loads((args.out/'run-metadata.json').read_text())
             result=json.loads((args.out/'results'/'results.json').read_text())['results'][0]
-            self.assertEqual(metadata['collection_stop_reason'],'archive_watermark')
+            self.assertEqual(metadata['collection_stop_reason'],'quiet_period')
             self.assertFalse(metadata['collection_complete'])
             self.assertEqual(result['outcome'],'not_assessable')
+
+    def test_unrelated_vm_event_does_not_count_as_scenario_evidence(self):
+        import collect_operation
+        matching=event()
+        unrelated=copy.deepcopy(matching)
+        unrelated['id']='record-2'
+        unrelated['data']['win']['eventdata']['processId']='999'
+        alerts=export([])
+        one=collect_operation.matching_evidence_signatures(
+            report(),alerts,export([matching],True),'002','Test')
+        two=collect_operation.matching_evidence_signatures(
+            report(),alerts,export([matching,unrelated],True),'002','Test')
+        self.assertTrue(one)
+        self.assertEqual(one,two)
+
+    def test_new_matching_record_resets_quiet_wait(self):
+        import argparse
+        import collect_operation
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            config=root/'config.json'
+            config.write_text(json.dumps({'caldera_url':'http://lab:8888','wazuh_host':'lab',
+                'windows_host':'Test','wazuh_agent_id':'002','collection_quiet_seconds':30,
+                'max_ingest_wait_seconds':90}))
+            args=argparse.Namespace(config=config,list=False,
+                operation='338ef596-0594-4935-9938-d8485c33c8f1',out=root/'run')
+            matching=event()
+            unrelated=copy.deepcopy(matching)
+            unrelated['id']='unrelated'
+            unrelated['data']['win']['eventdata']['processId']='999'
+            later=copy.deepcopy(matching)
+            later['id']='new-matching'
+            snapshots=[export([matching],True),export([matching,unrelated],True),
+                       export([matching,unrelated,later],True)]
+            snapshots.extend([snapshots[-1],snapshots[-1]])
+            remote_outputs=[str(datetime.now(timezone.utc).timestamp())]
+            for archive in snapshots:
+                remote_outputs.extend([json.dumps(export([])),json.dumps(archive)])
+            clock=[0.0]
+            def advance(seconds):
+                clock[0]+=seconds
+            with patch.object(collect_operation,'api',return_value=report()), \
+                 patch.object(collect_operation,'connect',return_value=MagicMock()), \
+                 patch.object(collect_operation.getpass,'getpass',return_value='synthetic-test-only'), \
+                 patch.object(collect_operation,'remote',side_effect=remote_outputs), \
+                 patch.object(collect_operation,'select_window',return_value=(remote_collect.stamp(START),remote_collect.stamp(END),[])), \
+                 patch.object(collect_operation.time,'monotonic',side_effect=lambda:clock[0]), \
+                 patch.object(collect_operation.time,'sleep',side_effect=advance):
+                collect_operation.run(args)
+            metadata=json.loads((args.out/'run-metadata.json').read_text())
+            self.assertEqual(clock[0],60.0)
+            self.assertEqual(metadata['collection_stop_reason'],'quiet_period')
 
 class ScenarioRunnerTests(unittest.TestCase):
     def test_validate_spec_rejects_evasion_and_bad_fields(self):
