@@ -148,7 +148,7 @@ def navigator_layer(rows):
     return {"name": "Wazuh BAS coverage", "domain": "enterprise-attack",
             "versions": {"layer": "4.5", "navigator": "4.9.1", "attack": "15"},
             "description": "Outcome per tested technique. 100 labelled/prevented, 75 unlabelled, 40 telemetry only, 0 missed.",
-            "gradient": {"colors": ["#d03b3b", "#f0efec", "#0ca30c"], "minValue": 0, "maxValue": 100},
+            "gradient": {"colors": ["#d03b3b", "#f0efec", "#2a78d6"], "minValue": 0, "maxValue": 100},
             "techniques": techniques}
 
 
@@ -190,11 +190,14 @@ HTML_TEMPLATE = r"""<!doctype html>
   --sunken:#faf8f9; --line:#ece7ea; --line2:#f3f0f2;
   --ink:#1f2937; --ink2:#4b5563; --muted:#6b7280;
   --accent:#c0267f; --accent-hover:#a51f6c; --accent-ink:#9d174d;
-  /* Outcome colours carry status meaning. Neighbours in the bars pass the dataviz palette checks
-     (normal vision dE >= 15, colour-blind dE >= 8); yellow is below 3:1, so every colour ships
-     with a text label. Pink is chrome only and never marks data. */
-  --prevented:#006300; --detected_labelled:#0ca30c; --detected_unlabelled:#2a78d6;
-  --telemetry_only:#fab219; --missed:#d03b3b; --not_assessable:#898781;
+  /* Outcome colours, chosen for colour-blind readers: blue means Wazuh raised an alert (darker is
+     stronger), amber a log but no alert, red missed, grey not assessable. Red against green, the
+     pair red-green colour blindness merges, is gone. Every pair of the six stays apart under
+     protan, deutan and tritan simulation (dataviz check, all pairs, worst dE 9.1, target 8) and
+     under normal vision (worst dE 17.6, floor 15). Each outcome also has its own glyph and a text
+     label, so colour is never the only cue. Pink is chrome only and never marks data. */
+  --prevented:#104281; --detected_labelled:#2a78d6; --detected_unlabelled:#86b6ef;
+  --telemetry_only:#eda100; --missed:#d03b3b; --not_assessable:#898781;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -248,7 +251,8 @@ h2{font-size:14px;font-weight:600;margin:0}
 .hint,.small,.muted{font-size:12px;color:var(--muted)}
 .strong{font-weight:600}
 .mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums}
-.dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.badge{display:inline-flex;flex:none}
+.badge svg{display:block}
 .chip{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .ico{display:inline-flex;flex:none}
 
@@ -264,12 +268,11 @@ h2{font-size:14px;font-weight:600;margin:0}
 .split{display:flex;gap:2px;height:28px}
 .thin{display:flex;gap:2px;height:8px}
 .seg{flex:1 1 0;min-width:4px;border-radius:4px;cursor:default}
-.split .seg{display:flex;align-items:center;padding:0 8px;font-size:12px;font-weight:600;color:#fff;white-space:nowrap}
+.split .seg{display:flex;align-items:center;gap:6px;padding:0 8px;font-size:12px;font-weight:600;color:#fff;white-space:nowrap}
 .split .seg.dark{color:#0b0b0b}
 .seg.none{background:var(--line2)}
-.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:12px;font-size:12.5px;color:var(--ink2)}
-.legend .li{display:inline-flex;align-items:center;gap:7px}
-.legend .sw{width:10px;height:10px;border-radius:3px;flex:none}
+.legend{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:14px;font-size:13px;color:var(--ink2)}
+.legend .li{display:inline-flex;align-items:center;gap:8px}
 
 /* tactic matrix */
 .matrix{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;align-items:flex-start}
@@ -283,9 +286,8 @@ h2{font-size:14px;font-weight:600;margin:0}
 .tcard:hover{background:var(--sunken)}
 .tid{display:flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px}
 .tid .more{display:inline-flex;gap:3px;margin-left:auto}
-.tid .more .dot{width:6px;height:6px}
-.tname{font-size:12px;color:var(--ink2);margin:2px 0 0 15px;line-height:1.35}
-.tmeta{font-size:11.5px;color:var(--muted);margin:4px 0 0 15px;line-height:1.35}
+.tname{font-size:12px;color:var(--ink2);margin:2px 0 0 23px;line-height:1.35}
+.tmeta{font-size:11.5px;color:var(--muted);margin:4px 0 0 23px;line-height:1.35}
 
 /* steps table */
 .tablewrap{overflow-x:auto}
@@ -460,8 +462,24 @@ const tacticName = t => TACTICS[t] || String(t || "unknown").replace(/-/g, " ");
 const specFor = op => (DATA.scenarios || []).find(sp => sp.scenario && String(op || "").startsWith(sp.scenario + "-"));
 const scenarioName = op => { const sp = specFor(op); return sp ? (sp.name || sp.scenario) : String(op || ""); };
 const runLabel = id => { const m = /^(\d{8}T\d{6}Z)-(\w+)$/.exec(id || ""); return m ? `${fmtStamp(m[1])} · ${m[2]}` : String(id || ""); };
-function dot(o){ const d = el("span", "dot"); d.style.background = `var(--${o})`; return d; }
-function chip(o){ const c = el("span", "chip"); c.append(dot(o), document.createTextNode(LABELS[o] || o)); return c; }
+/* Every outcome has a glyph as well as a colour, so no outcome depends on colour alone:
+   bar = prevented, tick = labelled, ! = unlabelled, eye = telemetry only, cross = missed, ? = not assessable. */
+const GLYPHS = {
+  prevented: '<path d="M4.6 8h6.8"/>',
+  detected_labelled: '<path d="M4.7 8.3l2.2 2.2 4.4-4.7"/>',
+  detected_unlabelled: '<path d="M8 4.5v4.2"/><circle cx="8" cy="11.5" r=".4"/>',
+  telemetry_only: '<path d="M3.2 8c1.3-2 2.9-3 4.8-3s3.5 1 4.8 3c-1.3 2-2.9 3-4.8 3S4.5 10 3.2 8z" stroke-width="1.5"/><circle cx="8" cy="8" r=".6"/>',
+  missed: '<path d="M5.5 5.5l5 5M10.5 5.5l-5 5"/>',
+  not_assessable: '<path d="M6.1 6.4a1.9 1.9 0 1 1 2.8 1.7c-.6.3-.9.7-.9 1.3v.3"/><circle cx="8" cy="11.7" r=".4"/>',
+};
+const DARK_INK = ["detected_unlabelled", "telemetry_only"];   // the two light fills take a near-black glyph
+function badge(o, size, bare){
+  const k = GLYPHS[o] ? o : "not_assessable", ink = DARK_INK.includes(k) ? "#0b0b0b" : "#fff", s = el("span", "badge");
+  const disc = bare ? "" : `<circle cx="8" cy="8" r="8" fill="var(--${k})"/>`;
+  s.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true">${disc}<g fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[k]}</g></svg>`;
+  return s;
+}
+function chip(o){ const c = el("span", "chip"); c.append(badge(o, 16), document.createTextNode(LABELS[o] || o)); return c; }
 function icon(kind){ const s = el("span", "ico"); s.innerHTML = ICONS[kind]; return s; }
 
 /* one tooltip for every bar segment; labels go in as text, never as markup */
@@ -485,13 +503,16 @@ function segBar(rows, tall){
     const k = rows.filter(r => r.outcome === o).length;
     if (!k) return;
     const s = el("div", "seg"); s.style.flexGrow = k; s.style.background = `var(--${o})`;
-    if (tall) { s.textContent = pct(k, n) + "%"; if (o === "telemetry_only") s.classList.add("dark"); }
+    if (tall) { s.append(badge(o, 14, true), el("span", "pc", pct(k, n) + "%")); if (DARK_INK.includes(o)) s.classList.add("dark"); }
     attachTip(s, pct(k, n) + "%", `${LABELS[o]}, ${k} of ${n}`);
     bar.append(s);
   });
   return bar;
 }
-function fitLabels(root){ requestAnimationFrame(() => root.querySelectorAll(".split .seg").forEach(s => { if (s.scrollWidth > s.clientWidth + 1) s.textContent = ""; })); }
+/* a segment too narrow for its label drops the share first, then the glyph */
+function fitLabels(root){ requestAnimationFrame(() => root.querySelectorAll(".split .seg").forEach(s => {
+  [".pc", ".badge"].forEach(part => { if (s.scrollWidth > s.clientWidth + 1) s.querySelector(part)?.remove(); });
+})); }
 
 /* results view */
 const state = {run: "", scenario: "", tactic: "", technique: "", outcome: "", search: "", sort: "run_utc", dir: -1};
@@ -526,7 +547,7 @@ function renderKpis(rows){
 function renderSplit(rows){
   const box = $("split"); box.replaceChildren(segBar(rows, true)); fitLabels(box);
   const lg = $("legend"); lg.replaceChildren();
-  OUT.forEach(o => { const i = el("span", "li"), sw = el("span", "sw"); sw.style.background = `var(--${o})`; i.append(sw, document.createTextNode(LABELS[o])); lg.append(i); });
+  OUT.forEach(o => { const i = el("span", "li"); i.append(badge(o, 20), document.createTextNode(LABELS[o])); lg.append(i); });
   $("splitHint").textContent = n_steps(rows);
 }
 const n_steps = rows => rows.length ? plural(rows.length, "step") : "No steps";
@@ -551,11 +572,11 @@ function renderMatrix(rows){
       rs.sort((a, b) => String(b.run_utc).localeCompare(String(a.run_utc)));
       const r = rs[0], card = el("button", "tcard"), id = el("div", "tid");
       card.type = "button";
-      id.append(dot(r.outcome), document.createTextNode(tech));
-      if (rs.length > 1) { const more = el("span", "more"); rs.slice(1, 6).forEach(x => more.append(dot(x.outcome))); id.append(more); }
+      id.append(badge(r.outcome, 16), document.createTextNode(tech));
+      if (rs.length > 1) { const more = el("span", "more"); rs.slice(1, 6).forEach(x => more.append(badge(x.outcome, 12))); id.append(more); }
       card.append(id, el("div", "tname", r.technique_name || r.ability_name || ""),
         el("div", "tmeta", LABELS[r.outcome] + (r.rule_ids ? " · rules " + r.rule_ids.replace(/;/g, ", ") : "")));
-      card.title = rs.length > 1 ? `Latest of ${rs.length} steps; older results shown as small dots` : (r.ability_name || "");
+      card.title = rs.length > 1 ? `Latest of ${rs.length} steps; the small circles are older results` : (r.ability_name || "");
       card.onclick = () => {
         state.tactic = t; updateAttackFilters();
         state.technique = r.technique_id || ""; $("fTechnique").value = state.technique;
@@ -691,7 +712,7 @@ function navLayer(rows){
   rows.forEach(r => { if (!r.technique_id) return; const s = S[r.outcome] || 0;
     if (!best[r.technique_id] || s > best[r.technique_id].score) best[r.technique_id] = {score: s, comment: r.outcome + "; rules " + (r.rule_ids || "none")}; });
   return JSON.stringify({name: "Wazuh BAS coverage", domain: "enterprise-attack", versions: {layer: "4.5", navigator: "4.9.1", attack: "15"},
-    gradient: {colors: ["#d03b3b", "#f0efec", "#0ca30c"], minValue: 0, maxValue: 100},
+    gradient: {colors: ["#d03b3b", "#f0efec", "#2a78d6"], minValue: 0, maxValue: 100},
     techniques: Object.entries(best).map(([t, i]) => ({techniqueID: t, score: i.score, comment: i.comment, enabled: true}))}, null, 2);
 }
 function download(name, text, type){ const u = URL.createObjectURL(new Blob([text], {type})); const a = el("a"); a.href = u; a.download = name; document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
