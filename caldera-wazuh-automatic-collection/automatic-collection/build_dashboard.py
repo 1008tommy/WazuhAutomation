@@ -232,6 +232,8 @@ h1{font-size:21px;line-height:1.25;margin:0;font-weight:600;letter-spacing:-.015
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
 select,input{font-size:13px;color:var(--ink2);background:#fff;border:1px solid var(--line);border-radius:7px;padding:7px 10px}
 input[type=search]{min-width:250px}
+#fTechnique{max-width:min(100%,360px)}
+.filter-note{margin:-10px 0 18px}
 select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible,.seg:focus-visible,tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .btn{font-size:13px;font-weight:500;border-radius:7px;padding:7px 14px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink2)}
 .btn:hover{border-color:#d8cfd4;color:var(--ink)}
@@ -375,9 +377,13 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
         <div class="actions"><button class="btn" id="dlCsv" type="button">Export CSV</button><button class="btn" id="dlNav" type="button">Navigator layer</button></div>
       </div>
       <div class="filters" role="group" aria-label="Filters">
-        <select id="fRun" aria-label="Run"></select><select id="fScenario" aria-label="Scenario"></select><select id="fOutcome" aria-label="Outcome"></select>
+        <select id="fRun" aria-label="Run"></select><select id="fScenario" aria-label="Scenario"></select>
+        <select id="fTactic" aria-label="ATT&amp;CK tactic"></select><select id="fTechnique" aria-label="ATT&amp;CK technique"></select>
+        <select id="fOutcome" aria-label="Outcome"></select>
         <input id="search" type="search" placeholder="Search ability, technique or rule" aria-label="Search">
+        <button class="btn" id="clearFilters" type="button">Clear filters</button>
       </div>
+      <p class="small filter-note">ATT&amp;CK filters use the technique assigned to each CALDERA step; Wazuh alert tags are shown separately.</p>
       <div class="kpis" id="kpis"></div>
       <section class="panel">
         <div class="ph"><h2>Outcome split</h2><span class="hint" id="splitHint"></span></div>
@@ -488,10 +494,11 @@ function segBar(rows, tall){
 function fitLabels(root){ requestAnimationFrame(() => root.querySelectorAll(".split .seg").forEach(s => { if (s.scrollWidth > s.clientWidth + 1) s.textContent = ""; })); }
 
 /* results view */
-const state = {run: "", scenario: "", outcome: "", search: "", sort: "run_utc", dir: -1};
+const state = {run: "", scenario: "", tactic: "", technique: "", outcome: "", search: "", sort: "run_utc", dir: -1};
 function filtered(){
   const q = state.search.toLowerCase();
   return DATA.rows.filter(r => (!state.run || r.run_id === state.run) && (!state.scenario || r.scenario === state.scenario)
+    && (!state.tactic || r.tactic_norm === state.tactic) && (!state.technique || r.technique_id === state.technique)
     && (!state.outcome || r.outcome === state.outcome)
     && (!q || [r.ability_name, r.technique_id, r.technique_name, r.rule_ids, r.alert_mitre_ids].join(" ").toLowerCase().includes(q)));
 }
@@ -528,8 +535,9 @@ function renderMatrix(rows){
   const by = {};
   rows.forEach(r => (by[r.tactic_norm] = by[r.tactic_norm] || []).push(r));
   const order = DATA.tactic_order.concat(Object.keys(by).filter(t => t && !DATA.tactic_order.includes(t)));
-  const untested = DATA.tactic_order.filter(t => !by[t]);
-  $("untested").textContent = rows.length && untested.length ? "Not tested yet: " + untested.map(tacticName).join(", ") : "";
+  const tested = new Set(DATA.rows.map(r => r.tactic_norm));
+  const untested = DATA.tactic_order.filter(t => !tested.has(t));
+  $("untested").textContent = DATA.rows.length && untested.length ? "No saved tests for: " + untested.map(tacticName).join(", ") : "";
   if (!rows.length) m.append(el("p", "muted", "No steps match the filters."));
   order.filter(t => by[t]).forEach(t => {
     const list = by[t], col = el("div", "tcol"), head = el("div", "th");
@@ -548,7 +556,12 @@ function renderMatrix(rows){
       card.append(id, el("div", "tname", r.technique_name || r.ability_name || ""),
         el("div", "tmeta", LABELS[r.outcome] + (r.rule_ids ? " · rules " + r.rule_ids.replace(/;/g, ", ") : "")));
       card.title = rs.length > 1 ? `Latest of ${rs.length} steps; older results shown as small dots` : (r.ability_name || "");
-      card.onclick = () => { state.search = tech; $("search").value = tech; render(); $("steps").scrollIntoView({behavior: "smooth", block: "start"}); };
+      card.onclick = () => {
+        state.tactic = t; updateAttackFilters();
+        state.technique = r.technique_id || ""; $("fTechnique").value = state.technique;
+        state.search = ""; $("search").value = "";
+        render(); $("steps").scrollIntoView({behavior: "smooth", block: "start"});
+      };
       col.append(card);
     });
   });
@@ -645,6 +658,21 @@ function renderHealth(){
 function fill(id, label, values, show){
   const s = $(id); s.replaceChildren(el("option", null, label)); s.firstChild.value = "";
   values.forEach(v => { if (!v) return; const o = el("option", null, show ? show(v) : v); o.value = v; s.append(o); });
+}
+function updateAttackFilters(){
+  const scope = DATA.rows.filter(r => (!state.run || r.run_id === state.run) && (!state.scenario || r.scenario === state.scenario));
+  const rank = t => { const n = DATA.tactic_order.indexOf(t); return n < 0 ? DATA.tactic_order.length : n; };
+  const tactics = [...new Set(scope.map(r => r.tactic_norm).filter(Boolean))]
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  if (state.tactic && !tactics.includes(state.tactic)) state.tactic = "";
+  fill("fTactic", "All ATT&CK tactics", tactics, tacticName);
+  $("fTactic").value = state.tactic;
+  const techniqueRows = scope.filter(r => !state.tactic || r.tactic_norm === state.tactic);
+  const names = new Map(techniqueRows.filter(r => r.technique_id).map(r => [r.technique_id, r.technique_name || ""]));
+  const techniques = [...names.keys()].sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+  if (state.technique && !names.has(state.technique)) state.technique = "";
+  fill("fTechnique", "All ATT&CK techniques", techniques, id => names.get(id) ? `${id} · ${names.get(id)}` : id);
+  $("fTechnique").value = state.technique;
 }
 function render(){
   const rows = filtered();
@@ -769,11 +797,19 @@ function showView(){
 addEventListener("hashchange", showView);
 fill("fRun", "All runs", [...new Set(DATA.rows.map(r => r.run_id))], runLabel);
 fill("fScenario", "All scenarios", [...new Set(DATA.rows.map(r => r.scenario))], op => `${scenarioName(op)} · ${String(op).split("-").pop()}`);
+updateAttackFilters();
 fill("fOutcome", "All outcomes", OUT, o => LABELS[o]);
-$("fRun").onchange = e => { state.run = e.target.value; render(); };
-$("fScenario").onchange = e => { state.scenario = e.target.value; render(); };
+$("fRun").onchange = e => { state.run = e.target.value; updateAttackFilters(); render(); };
+$("fScenario").onchange = e => { state.scenario = e.target.value; updateAttackFilters(); render(); };
+$("fTactic").onchange = e => { state.tactic = e.target.value; updateAttackFilters(); render(); };
+$("fTechnique").onchange = e => { state.technique = e.target.value; render(); };
 $("fOutcome").onchange = e => { state.outcome = e.target.value; render(); };
 $("search").oninput = e => { state.search = e.target.value; render(); };
+$("clearFilters").onclick = () => {
+  state.run = state.scenario = state.tactic = state.technique = state.outcome = state.search = "";
+  ["fRun", "fScenario", "fOutcome", "search"].forEach(id => { $(id).value = ""; });
+  updateAttackFilters(); render();
+};
 $("dlCsv").onclick = () => download("results-combined.csv", toCsv(filtered()), "text/csv");
 $("dlNav").onclick = () => download("navigator-wazuh.json", navLayer(filtered()), "application/json");
 const hosts = [...new Set(DATA.rows.map(r => r.host).filter(Boolean))];
