@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, quote
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
-from match_results import collection_complete as assess_collection_complete, time_value
+from match_results import collection_complete as assess_collection_complete, correlate, time_value
 
 HERE = Path(__file__).resolve().parent
 
@@ -51,6 +51,20 @@ def archive_snapshot(client, command, sudo_password, agent, start, end):
 
 def past_window(watermark, end):
     return bool(watermark and time_value(watermark) >= end)
+
+
+def matching_evidence_signatures(report, alerts, archives, agent_id, host):
+    """Identify scenario evidence; unrelated agent events must not reset the quiet timer."""
+    matched = correlate(report, alerts, str(agent_id), host_filter=host, archives=archives)
+    signatures = set()
+    for row in matched["results"]:
+        for source, field in (("alerts", "evidence"), ("archives", "archive_evidence")):
+            for item in row[field]:
+                # Indices can change when a late record is inserted earlier in event-time order.
+                stable = {key: value for key, value in item.items()
+                          if key not in {"alert_index", "event_index"}}
+                signatures.add((source, row["link_id"], json.dumps(stable, sort_keys=True)))
+    return signatures
 
 def select_window(report, host, before=30, after=90):
     if not report.get("finish"):
@@ -199,38 +213,46 @@ def run(args):
         command = shlex.join(["sudo", "-k", "-S", "-p", "", "--", "python3", "-c", bootstrap,
                               "--agent", str(config["wazuh_agent_id"]),
                               "--start", start.isoformat(), "--end", end.isoformat()])
-        # Archives contain non-alert events, so they can show stream progress when
-        # the alert watermark stalls. Only the alert watermark may establish the
-        # existing collection_complete condition used for missed scoring.
+        # Wait for scenario-matched evidence to settle. Unrelated agent activity
+        # does not reset the timer or make a quiet alert stream appear complete.
         max_wait = int(config.get("max_ingest_wait_seconds", 300))
         if max_wait < 0:
             raise ValueError("max_ingest_wait_seconds must be nonnegative")
+        quiet_seconds = int(config.get("collection_quiet_seconds", 90))
+        if quiet_seconds < 0:
+            raise ValueError("collection_quiet_seconds must be nonnegative")
         poll = max(15, int(config.get("watermark_poll_seconds", 15)))
-        deadline = datetime.now(timezone.utc) + timedelta(seconds=max_wait)
-        archives = None
+        deadline = time.monotonic() + max_wait
+        last_relevant_change = time.monotonic()
+        seen_evidence = set()
         while True:
             collected = json.loads(remote(client, command, sudo_password))
             watermark = collected.get("agent_watermark")
             caught_up = past_window(watermark, end)
-            if caught_up:
-                stop_reason = "alert_watermark"
-                break
             archives = archive_snapshot(client, command, sudo_password,
                                         config["wazuh_agent_id"], start, end)
             archive_watermark = archives.get("agent_watermark")
-            if archives.get("collection_status") == "success" and past_window(archive_watermark, end):
-                stop_reason = "archive_watermark"
-                print(f"Archive watermark {archive_watermark} passed the window end; "
-                      "alert completeness remains unverified.", flush=True)
+            evidence = matching_evidence_signatures(report, collected, archives,
+                                                     config["wazuh_agent_id"], config["windows_host"])
+            new_evidence = evidence - seen_evidence
+            if new_evidence:
+                seen_evidence.update(new_evidence)
+                last_relevant_change = time.monotonic()
+                print(f"Observed {len(new_evidence)} new scenario-matched record(s); "
+                      "quiet timer reset.", flush=True)
+            now = time.monotonic()
+            if now - last_relevant_change >= quiet_seconds:
+                stop_reason = "quiet_period"
                 break
-            if datetime.now(timezone.utc) >= deadline:
+            if now >= deadline:
                 stop_reason = "timeout"
                 break
-            remaining = max(0, (deadline - datetime.now(timezone.utc)).total_seconds())
-            delay = min(poll, remaining)
-            print(f"Alert watermark {watermark} and archive watermark {archive_watermark} "
-                  f"are behind window end {end.isoformat()}; "
-                  f"waiting {int(delay)+1}s (at most {int(remaining)+1}s remain)...", flush=True)
+            remaining = max(0, deadline - now)
+            quiet_remaining = max(0, quiet_seconds - (now - last_relevant_change))
+            delay = min(poll, remaining, quiet_remaining)
+            print(f"Waiting {int(delay)+1}s for scenario evidence to settle "
+                  f"({int(quiet_remaining)+1}s quiet period, {int(remaining)+1}s maximum remain); "
+                  f"alert watermark {watermark}; archive watermark {archive_watermark}.", flush=True)
             time.sleep(delay)
         print("Collected alerts:", collected.get("alert_count"),
               "| watermark:", collected.get("agent_watermark"),
@@ -238,9 +260,6 @@ def run(args):
         if collected.get("queue_alert_rule_ids"):
             print("Agent-queue saturation rules in window (telemetry may be incomplete):",
                   ";".join(collected["queue_alert_rule_ids"]), flush=True)
-        if archives is None:
-            archives = archive_snapshot(client, command, sudo_password,
-                                        config["wazuh_agent_id"], start, end)
         print("Archive collection:", archives.get("collection_status"),
               "events:", archives.get("event_count"), flush=True)
         if archives.get("incomplete_tail_files"):
@@ -270,6 +289,7 @@ def run(args):
         "windows_host": config["windows_host"], "wazuh_agent_id": str(config["wazuh_agent_id"]),
         "window_start": start.isoformat(), "window_end": end.isoformat(),
         "before_seconds": before, "after_seconds": after, "ingestion_grace_seconds": grace,
+        "collection_quiet_seconds": quiet_seconds,
         "agent_watermark": collected.get("agent_watermark"),
         "archive_watermark": archives.get("agent_watermark"),
         "collection_stop_reason": stop_reason,
