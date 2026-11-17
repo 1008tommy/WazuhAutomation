@@ -131,18 +131,16 @@ def build_data(runs, scenarios):
             rows.append(flat)
         window = result.get("collection_window", {})
         run_summaries.append({
-            "run_id": run["run_id"], "scenario": scenario, "operation": operation,
+            "run_id": run["run_id"], "scenario": scenario,
             "window_start": window.get("start") or meta.get("window_start"),
             "window_end": window.get("end") or meta.get("window_end"),
             "agent_watermark": meta.get("agent_watermark"),
             "archive_watermark": meta.get("archive_watermark"),
             "collection_stop_reason": meta.get("collection_stop_reason"),
-            "collection_quiet_seconds": meta.get("collection_quiet_seconds"),
             "collection_complete": meta.get("collection_complete"),
             "queue_alert_rule_ids": meta.get("queue_alert_rule_ids", []),
             "archive_collection_status": result.get("archive_collection_status") or meta.get("archive_collection_status"),
             "harness_rule_ids": result.get("harness_rule_ids", []),
-            "defender_state": meta.get("defender_state", "loaded, inert"),
         })
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -280,7 +278,6 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible,.s
 h2{font-size:14px;font-weight:600;margin:0}
 .hint,.small,.muted{font-size:12px;color:var(--muted)}
 .strong{font-weight:600}
-.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums}
 .badge{display:inline-flex;flex:none}
 .badge svg{display:block}
 .chip{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
