@@ -12,28 +12,16 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, quote
-from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
+from caldera_api import Caldera
 from match_results import collection_complete as assess_collection_complete, correlate, time_value
 
 HERE = Path(__file__).resolve().parent
 
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise ValueError("Unexpected API redirect; check the configured CALDERA URL")
-
 def api(base, key, path, body=None):
-    request = Request(base.rstrip("/") + "/api/v2/" + path,
-                      headers={"KEY": key, "Accept": "application/json", "Content-Type": "application/json"},
-                      data=None if body is None else json.dumps(body).encode(),
-                      method="GET" if body is None else "POST")
-    try:
-        # Local lab calls should not send credentials through a configured HTTP proxy.
-        with build_opener(ProxyHandler({}), NoRedirect()).open(request, timeout=30) as reply:
-            return json.load(reply)
-    except HTTPError as error:
-        raise ValueError(f"CALDERA API HTTP {error.code}; check URL, API key and operation ID") from None
+    """GET, or POST when there is a body, through the shared CALDERA client (no proxy, no redirects)."""
+    client = Caldera(base, key)
+    return client.get(path) if body is None else client.post(path, body)
 
 
 def archive_snapshot(client, command, sudo_password, agent, start, end):

@@ -45,15 +45,6 @@ class Caldera:
     def post(self, path, body):
         return self._request("POST", path, body=body)
 
-    def put(self, path, body):
-        return self._request("PUT", path, body=body)
-
-    def patch(self, path, body):
-        return self._request("PATCH", path, body=body)
-
-    def delete(self, path):
-        return self._request("DELETE", path)
-
     def health(self):
         return self.get("health")
 
