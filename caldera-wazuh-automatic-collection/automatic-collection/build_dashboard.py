@@ -59,6 +59,28 @@ def time_to_alert_seconds(row):
     return best
 
 
+def saved_cleanup(run_dir, meta):
+    """Read explicit cleanup links only. An ability ID or name can also belong to a scored step."""
+    known = {str(i): None for i in (meta.get("cleanup_link_ids") or []) if i}
+    try:
+        links = json.loads((run_dir / "caldera-links.json").read_text(encoding="utf-8-sig"))
+    except (ValueError, OSError):
+        links = None
+    for link in links if isinstance(links, list) else []:
+        if not isinstance(link, dict) or not link.get("id"):
+            continue
+        lid = str(link["id"])
+        if link.get("cleanup") not in (True, 1, "1", "true") and lid not in known:
+            continue
+        ability = link.get("ability")
+        name = ability.get("name") if isinstance(ability, dict) else None
+        status = link.get("status")
+        known[lid] = {"name": name, "status": str(status) if status is not None else None}
+    return {"recorded": isinstance(links, list) or isinstance(meta.get("cleanup_link_ids"), list),
+            "steps": [{"id": lid, **(value or {"name": None, "status": None})}
+                      for lid, value in known.items()]}
+
+
 def load_runs(runs_dir):
     runs = []
     for results_file in sorted(Path(runs_dir).glob("*/results/results.json")):
@@ -75,7 +97,8 @@ def load_runs(runs_dir):
                 meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
             except (OSError, ValueError):
                 meta = {}
-        runs.append({"run_id": run_dir.name, "result": result, "meta": meta})
+        runs.append({"run_id": run_dir.name, "result": result, "meta": meta,
+                     "cleanup": saved_cleanup(run_dir, meta)})
     return runs
 
 
@@ -143,7 +166,11 @@ def build_data(runs, scenarios):
         first = result.get("results", [{}])
         operation = first[0].get("operation_name") if first else None
         scenario = meta.get("scenario") or operation or run["run_id"]
+        cleanup = run.get("cleanup", {"recorded": False, "steps": []})
+        cleanup_ids = {step["id"] for step in cleanup["steps"]}
         for row in result.get("results", []):
+            if str(row.get("link_id")) in cleanup_ids:
+                continue
             flat = dict(row)
             # Preserve original evidence, but do not reuse an old prevention inference.
             if flat.get("outcome") == "prevented":
@@ -160,6 +187,7 @@ def build_data(runs, scenarios):
         window = result.get("collection_window", {})
         run_summaries.append({
             "run_id": run["run_id"], "scenario": scenario, **comparison_metadata(run, scenarios),
+            "cleanup": cleanup,
             "window_start": window.get("start") or meta.get("window_start"),
             "window_end": window.get("end") or meta.get("window_end"),
             "agent_watermark": meta.get("agent_watermark"),
@@ -466,6 +494,8 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
         <div class="ph"><h2>Steps</h2><span class="hint" id="tblHint"></span></div>
         <div class="tablewrap"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
       </section>
+      <section class="panel"><div class="ph"><h2>Cleanup (unscored)</h2></div>
+        <div id="cleanupStatus"></div></section>
       <div class="two">
         <section class="panel"><div class="ph"><h2>Findings to review</h2></div><div id="gaps"></div></section>
         <section class="panel"><div class="ph"><h2>Evidence collection</h2></div><div id="health"></div></section>
@@ -822,8 +852,32 @@ function updateAttackFilters(){
   fill("fTechnique", "All ATT&CK techniques", techniques, id => names.get(id) ? `${id} · ${names.get(id)}` : id);
   $("fTechnique").value = state.technique;
 }
+function cleanupContent(run){
+  const box = el("div");
+  if (!run){
+    box.append(el("p", "muted", "Select a run to see its cleanup status."));
+    return box;
+  }
+  const steps = run.cleanup?.steps || [];
+  if (!steps.length){
+    box.append(el("p", "muted", run.cleanup?.recorded ? "No cleanup steps recorded for this run." :
+      "Cleanup status unavailable for this saved run."));
+    return box;
+  }
+  box.append(el("p", "small", "CALDERA execution status only. Cleanup is excluded from detection coverage."));
+  const list = el("ul");
+  for (const step of steps){
+    const status = step.status === "0" ? "Reported success" : step.status == null ? "Status unavailable" :
+      "CALDERA status " + step.status + " — review required";
+    list.append(el("li", null, (step.name ? "Cleanup for " + step.name : "Cleanup step") +
+      ": " + status + " · Link: " + step.id));
+  }
+  box.append(list); return box;
+}
 function render(){
   $("dlReport").disabled = !state.run;
+  $("cleanupStatus").replaceChildren(cleanupContent(DATA.runs.find(r => r.run_id === state.run) ||
+    (DATA.runs.length === 1 ? DATA.runs[0] : null)));
   const rows = filtered();
   renderKpis(rows); renderSplit(rows); renderMatrix(rows); renderTable(rows); renderGaps(rows); renderHealth();
 }
@@ -886,6 +940,8 @@ function runReport(run){
       add(tr,"td",finding(r));
     }
   } else add(body,"p","No scored steps were saved for this run.");
+  add(body,"h2","Cleanup (unscored)");
+  body.append(doc.importNode(cleanupContent(run),true));
   add(body,"h2","Limitations");
   add(body,"p","An alert or matching ATT&CK tag alone does not confirm the behaviour tested. No match means no matching evidence was found in the collected records. This report does not establish prevention or a completed response.");
   return "<!doctype html>" + doc.documentElement.outerHTML;

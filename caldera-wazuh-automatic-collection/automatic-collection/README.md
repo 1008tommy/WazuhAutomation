@@ -59,6 +59,12 @@ technique unconfirmed** means an alert matched the step but the tag was differen
 Even an exact tag does not independently verify that Wazuh recognised the intended behaviour.
 The CSV and JSON keep their original outcome codes.
 
+In **Results → Cleanup (unscored)**, select a run to see the CALDERA status of each recorded
+cleanup link. The printable report includes the same section. Missing cleanup evidence is shown
+as unavailable; a zero exit status is CALDERA-reported success, not independent verification
+that files were removed. Only explicit cleanup link IDs are excluded from scored rows. An alert
+about deletion does not by itself establish that Wazuh detected an upload.
+
 ### Compare saved runs
 
 Open **Compare runs**, choose a scenario, then pick a baseline and a later execution. Start with

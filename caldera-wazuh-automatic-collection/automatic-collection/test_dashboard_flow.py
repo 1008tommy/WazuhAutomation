@@ -188,11 +188,36 @@ class CompareRunsTests(unittest.TestCase):
             step["operation_name"] = "file-delivery-unrelated"
         self.assertIsNone(build_dashboard.comparison_metadata(r, self.specs)["compare_scenario"])
 
+    def test_saved_cleanup_is_not_a_scored_repeat_of_the_same_ability(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "run"
+            (root / "results").mkdir(parents=True)
+            original = self.run_data(1, "opA")["result"]["results"][0]
+            rows = [dict(original, link_id=lid) for lid in ["stage", "reset"]]
+            (root / "results/results.json").write_text(json.dumps({"results": rows}))
+            (root / "run-metadata.json").write_text(json.dumps({"cleanup_link_ids": ["reset", "old"]}))
+            (root / "caldera-links.json").write_text(json.dumps([
+                {"id": "stage", "status": 0, "cleanup": 0},
+                {"id": "reset", "status": 1, "cleanup": 1, "ability": {"name": "Stage file"}},
+                {"id": "reset2", "status": 0, "cleanup": True}]))
+            data = build_dashboard.build_data(build_dashboard.load_runs(folder), self.specs)
+            self.assertEqual([row["link_id"] for row in data["rows"]], ["stage"])
+            cleanup = data["runs"][0]["cleanup"]
+            self.assertEqual({s["id"]: s["status"] for s in cleanup["steps"]},
+                             {"reset": "1", "old": None, "reset2": "0"})
+            for filename in ["caldera-links.json", "run-metadata.json"]:
+                (root / filename).unlink()
+            self.assertEqual(build_dashboard.load_runs(folder)[0]["cleanup"], {"recorded": False, "steps": []})
+
     def test_report_and_kpis_use_selected_run_evidence(self):
         if not shutil.which("node") or subprocess.run(
                 ["node", "-e", "require.resolve('jsdom')"], capture_output=True).returncode:
             self.skipTest("Install jsdom for the optional offline report interaction test")
         run = self.run_data(1, "opA", complete=False)
+        run["cleanup"] = {"recorded": True, "steps": [
+            {"id": "reset", "name": "Stage file", "status": "0"},
+            {"id": "retry", "name": None, "status": "1"},
+            {"id": "old", "name": None, "status": None}]}
         rows = run["result"]["results"]
         rows[0].update(ability_name="Upload", technique_id="T1041", technique_match="different",
                        alert_mitre_ids="T1070.004", evidence=[{"rule_id": "100",
@@ -224,6 +249,11 @@ assert.equal(doc.querySelectorAll("script,img").length,0);
 assert.doesNotMatch(doc.body.textContent,/opB|Ambiguous candidate/);
 assert.match(doc.body.textContent,/Review test evidence/);
 assert.match(doc.body.textContent,/collection completeness not confirmed/);
+const reset = get("cleanupStatus").textContent;
+assert.match(reset,/Reported success/);
+assert.match(reset,/status 1 — review required/);
+assert.match(reset,/Status unavailable/);
+assert.ok(doc.body.textContent.includes(reset));
 const line = doc.querySelector("tbody tr").textContent;
 assert.match(line,/Rule 100: File deleted <img src=x>/);
 assert.match(line,/Different tag.*does not confirm the tested behaviour/);
