@@ -86,9 +86,9 @@ stopping rule, not proof that every alert arrived. The existing alert-watermark 
 whether no-evidence steps may be called `missed`; any alert from the agent, including unrelated activity,
 can advance that watermark. Otherwise they remain `not_assessable`. The dashboard
 summarizes how many steps have matching Wazuh evidence. It flags archive or queue problems and keeps
-watermark timing under **Collection timing and checks**. Each step gets one outcome:
+watermark timing under **Collection timing and checks**. Each step gets one of five detection/visibility outcomes:
 
-`prevented` · `detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
+`detected_labelled` (alert carries the technique) · `detected_unlabelled` (alert, wrong
 tag) · `telemetry_only` (log, no alert) · `missed` (no evidence and collection progress checks passed) ·
 `not_assessable`.
 
@@ -98,6 +98,18 @@ event time and CALDERA process context; process creation also checks the full co
 script-block matching uses process ID and time. Review generic alerts before treating them as
 technique-specific detections. The `__PSScriptPolicyTest_` / rule 92213 harness artifact is recorded
 but never scored.
+
+### Prevention is not assessed
+
+The current collectors do not provide explicit blocking records that establish why a step
+failed. A nonzero CALDERA exit status or timeout, even alongside an `active_response` alert,
+is not classified as prevention. Execution status, alerts and response fields remain available
+for review; this change does not alter response scoring. Future prevention evaluation needs
+explicit product action evidence linked to the tested endpoint/process and outcome.
+
+Old saved `prevented` rows are displayed/exported as `not_assessable` by the dashboard; their
+original run files are preserved. Reprocess the saved evidence with `match_results.py` to obtain
+updated detection/visibility outcomes. Rebuilding the dashboard alone does not rescore those rows.
 
 ## Guardrails
 
