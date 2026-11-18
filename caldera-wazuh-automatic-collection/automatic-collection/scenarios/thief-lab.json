@@ -1,6 +1,7 @@
 {
   "scenario": "thief-lab",
   "name": "Thief-Lab",
+  "evaluation_objective": "Check which steps Wazuh records when a synthetic file is staged, archived and transferred in the lab.",
   "adversary_id": "33906e88-8a4a-4b7a-a29d-c2b30d05d7e6",
   "planner": "atomic",
   "source": "94ec2647-e6f5-468d-93a5-557e3671b97a",

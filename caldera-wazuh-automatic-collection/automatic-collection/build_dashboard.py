@@ -111,6 +111,7 @@ def load_scenarios(scenarios_dir, exports_dir=EXPORTS):
         specs.append({"scenario": spec.get("scenario"), "name": spec.get("name"),
                       "adversary_id": spec.get("adversary_id"),
                       "tactics": tactics.get(spec.get("adversary_id"), []),
+                      "evaluation_objective": spec.get("evaluation_objective"),
                       "expected_techniques": spec.get("expected_techniques", []),
                       "file": f"scenarios/{path.name}"})
     return specs
@@ -286,7 +287,7 @@ button,select,input{font:inherit}
 .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
 h1{font-size:21px;line-height:1.25;margin:0;font-weight:600;letter-spacing:-.015em}
 .sub{margin:4px 0 0;color:var(--muted);font-size:13px}
-.actions{display:flex;gap:8px}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
 select,input{font-size:13px;color:var(--ink2);background:#fff;border:1px solid var(--line);border-radius:7px;padding:7px 10px}
 input[type=search]{min-width:250px}
@@ -442,7 +443,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
     <section class="view" id="view-results" aria-labelledby="h-results">
       <div class="phead">
         <div><h1 id="h-results">Results</h1></div>
-        <div class="actions"><button class="btn" id="dlCsv" type="button">Export CSV</button><button class="btn" id="dlNav" type="button">Navigator layer</button></div>
+        <div class="actions"><button class="btn" id="dlReport" type="button" disabled title="Select one run to export its complete report">Export run report</button><button class="btn" id="dlCsv" type="button">Export CSV</button><button class="btn" id="dlNav" type="button">Navigator layer</button></div>
       </div>
       <div class="filters" role="group" aria-label="Filters">
         <select id="fRun" aria-label="Run"></select><select id="fScenario" aria-label="Scenario"></select>
@@ -466,7 +467,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
         <div class="tablewrap"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
       </section>
       <div class="two">
-        <section class="panel"><div class="ph"><h2>Detection gaps</h2></div><div id="gaps"></div></section>
+        <section class="panel"><div class="ph"><h2>Findings to review</h2></div><div id="gaps"></div></section>
         <section class="panel"><div class="ph"><h2>Evidence collection</h2></div><div id="health"></div></section>
       </div>
     </section>
@@ -511,12 +512,12 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 const DATA = /*__DATA__*/null;
 const OUT = DATA.outcome_order;
 const SERVED = !!DATA.served;
-const LABELS = {detected_labelled:"Detected (labelled)", detected_unlabelled:"Detected (unlabelled)",
-  telemetry_only:"Telemetry only", missed:"Missed", not_assessable:"Not assessable"};
+const LABELS = {detected_labelled:"Alert with exact or related tag", detected_unlabelled:"Related alert — technique unconfirmed",
+  telemetry_only:"Logged without a matched alert", missed:"No matching evidence observed", not_assessable:"Not assessable"};
 const ADVICE = {
   detected_unlabelled: r => `An alert fired, but its ATT&CK tag is ${r.alert_mitre_ids || "empty"} rather than ${r.technique_id}. Review the rule's tag.`,
-  telemetry_only: () => "The event reached Wazuh but no rule fired. Candidate for a custom rule on the command line or script block.",
-  missed: () => "Nothing reached Wazuh although collection was complete: a logging or visibility gap.",
+  telemetry_only: () => "Wazuh logged matching activity. No matching alert was found in this collection.",
+  missed: () => "No matching evidence was found in the collected records; verify execution and monitoring before calling this a miss.",
   not_assessable: () => "Not assessable: check the executor PID, the time window and collection completeness.",
 };
 const ICONS = {
@@ -596,9 +597,10 @@ function fitLabels(root){ requestAnimationFrame(() => root.querySelectorAll(".sp
 })); }
 
 /* results view */
-function wazuhRules(r){
+function wazuhRules(r, matchedOnly=false){
   const rules = [], seen = new Set(), found = new Set();
   (r.evidence || []).forEach(e => {
+    if (matchedOnly && e.ambiguous) return;
     const id = String(e.rule_id || "").trim(), description = String(e.rule_description || "").trim();
     if (!id) return;
     found.add(id);
@@ -609,6 +611,20 @@ function wazuhRules(r){
     if (!found.has(id)) rules.push({id, description: ""});
   });
   return rules;
+}
+const hasMatchedAlert = r => Number(r.matched_alert_count) > 0 || isDetected(r.outcome);
+const hasExactTag = r => hasMatchedAlert(r) && r.technique_match === "exact";
+function tagText(r){
+  if (!hasMatchedAlert(r)) return "No matched alert recorded";
+  if (r.outcome === "not_assessable") return "Tag comparison not assessable";
+  return ({exact:"Exact tag", related:"Related tag (parent or sub-technique)", different:"Different tag",
+    none:"No tag"})[r.technique_match] || "Tag comparison not recorded";
+}
+function finding(r){
+  if (hasMatchedAlert(r)) return tagText(r) + ". " + (hasExactTag(r) ?
+    "The rule carries the tested tag; review the behaviour it describes." :
+    "The alert does not confirm the tested behaviour.");
+  return LABELS[r.outcome] || "Not assessable";
 }
 const state = {run: "", scenario: "", tactic: "", technique: "", outcome: "", search: "", sort: "run_utc", dir: -1};
 function filtered(){
@@ -621,15 +637,15 @@ function filtered(){
 }
 function renderKpis(rows){
   const n = rows.length, c = o => rows.filter(r => r.outcome === o).length;
-  const lab = c("detected_labelled"), det = lab + c("detected_unlabelled"), vis = det + c("telemetry_only");
+  const det = rows.filter(hasMatchedAlert).length, exact = rows.filter(hasExactTag).length;
   const times = rows.map(r => r.time_to_alert_s).filter(v => v != null).sort((a, b) => a - b);
   const med = times.length ? times[Math.floor((times.length - 1) / 2)] : null;
   const runs = new Set(rows.map(r => r.run_id)).size;
   const tiles = [
     ["Steps scored", String(n), "", plural(runs, "run")],
-    ["Detected", String(det), `/ ${n}`, `${pct(det, n)}% raised an alert`],
-    ["Correct technique", String(lab), `/ ${n}`, `${pct(lab, n)}% tagged as tested`],
-    ["Visible in Wazuh", String(vis), `/ ${n}`, `${pct(vis, n)}% alert or log`],
+    ["Steps with a matched alert", String(det), `/ ${n}`, `${pct(det, n)}% had an alert match`],
+    ["Exact ATT&CK tag match", String(exact), `/ ${n}`, "Same ID as the tested technique"],
+    ["Logged without a matched alert", String(c("telemetry_only")), `/ ${n}`, "Matching telemetry only"],
     ["Median time to alert", med != null ? tta(med) : "n/a", "", med != null && med > 120 ? "late: was the manager up?" : "event to alert"],
   ];
   const w = $("kpis"); w.replaceChildren();
@@ -659,8 +675,8 @@ function renderMatrix(rows){
     const list = by[t], col = el("div", "tcol"), head = el("div", "th");
     head.append(el("div", "tt", tacticName(t)));
     col.append(head); m.append(col);
-    const det = list.filter(r => isDetected(r.outcome)).length;
-    head.append(el("div", "ts", `${plural(list.length, "step")} · ${pct(det, list.length)}% detected`), segBar(list, false));
+    const det = list.filter(hasMatchedAlert).length;
+    head.append(el("div", "ts", `${plural(list.length, "step")} · ${pct(det, list.length)}% with matched alerts`), segBar(list, false));
     const byTech = {};
     list.forEach(r => (byTech[r.technique_id || "?"] = byTech[r.technique_id || "?"] || []).push(r));
     Object.entries(byTech).forEach(([tech, rs]) => {
@@ -687,9 +703,10 @@ const COLS = [["run_utc", "Time"], ["scenario", "Scenario"], ["ability_name", "A
 function details(r){
   const box = el("div"), facts = el("dl", "facts");
   [["Tactic", tacticName(r.tactic_norm)], ["Execution", r.execution], ["Caldera status", r.caldera_status],
-   ["Technique match", r.technique_match], ["Rule levels", r.rule_levels], ["Response", r.response],
+   ["Alert tag comparison", tagText(r)], ["Rule levels", r.rule_levels], ["Response evidence", r.response === "executed" ? "Response-related alert; action not verified" : "No verified action recorded"],
    ["Operation", r.operation_name], ["Run", r.run_id]]
     .forEach(([k, v]) => { if (v == null || v === "") return; facts.append(el("dt", null, k), el("dd", null, String(v))); });
+  box.append(el("p", null, finding(r)));
   const lines = (r.evidence || []).flatMap(e => {
     const text = [`Wazuh rule ${e.rule_id} (level ${e.rule_level ?? "?"}): ${e.rule_description || "Description not saved"}`,
       `Alert ATT&CK tag: ${(e.rule_mitre_ids || []).join(", ") || "none"}; match: ${e.relation || "unspecified"}; event: ${e.event_time_utc}; alert: ${e.alert_time_utc}`];
@@ -741,12 +758,12 @@ function renderTable(rows){
 }
 function renderGaps(rows){
   const g = $("gaps"); g.replaceChildren();
-  const gaps = rows.filter(r => r.outcome !== "detected_labelled");
-  if (!gaps.length) { g.append(el("p", "muted", rows.length ? "Every scored step was detected and tagged with the tested technique." : "No scored steps yet.")); return; }
+  const gaps = rows.filter(r => !hasExactTag(r));
+  if (!gaps.length) { g.append(el("p", "muted", rows.length ? "Every step has an alert with the exact tested tag." : "No scored steps yet.")); return; }
   gaps.forEach(r => {
     const d = el("div", "item"), top = el("div", "itop");
     top.append(chip(r.outcome), el("span", "strong", r.technique_id || "?"), el("span", "muted", r.ability_name || ""));
-    d.append(top, el("p", "itext", (ADVICE[r.outcome] || (() => ""))(r))); g.append(d);
+    d.append(top, el("p", "itext", (ADVICE[r.outcome] || finding)(r))); g.append(d);
   });
 }
 function renderHealth(){
@@ -806,6 +823,7 @@ function updateAttackFilters(){
   $("fTechnique").value = state.technique;
 }
 function render(){
+  $("dlReport").disabled = !state.run;
   const rows = filtered();
   renderKpis(rows); renderSplit(rows); renderMatrix(rows); renderTable(rows); renderGaps(rows); renderHealth();
 }
@@ -826,6 +844,52 @@ function navLayer(rows){
     techniques: Object.entries(best).map(([t, i]) => ({techniqueID: t, score: i.score, comment: i.comment, enabled: true}))}, null, 2);
 }
 function download(name, text, type){ const u = URL.createObjectURL(new Blob([text], {type})); const a = el("a"); a.href = u; a.download = name; document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
+
+/* Build a standalone, printable document. Run data is inserted only as text nodes. */
+function runReport(run){
+  const rows = DATA.rows.filter(r => r.run_id === run.run_id);
+  const spec = DATA.scenarios.find(s => s.scenario === run.compare_scenario);
+  const doc = document.implementation.createHTMLDocument("Wazuh findings — " + run.run_id);
+  doc.documentElement.lang = "en";
+  const meta = doc.createElement("meta"); meta.setAttribute("charset","utf-8"); doc.head.prepend(meta);
+  const add = (parent, tag, value) => {
+    const node = doc.createElement(tag); if (value != null) node.textContent = String(value); parent.append(node); return node;
+  };
+  add(doc.head,"style","body{font:15px/1.5 system-ui,sans-serif;color:#182235;margin:3rem auto;padding:0 1rem;max-width:72rem}h1,h2{line-height:1.2}table{width:100%;border-collapse:collapse}td,th{text-align:left;vertical-align:top;padding:.55rem;border:1px solid #ccd1d8;overflow-wrap:anywhere}dt{font-weight:bold}dd{margin:0 0 .5rem}small{display:block}@media print{@page{size:landscape;margin:12mm}body{margin:0;padding:0;font-size:10pt}thead{display:table-header-group}tr{break-inside:avoid}}");
+  const body = doc.body;
+  add(body,"h1","Run findings: " + (spec?.name || run.scenario || run.run_id));
+  const dl = add(body,"dl");
+  for (const [key,value] of [
+    ["Scenario objective (current catalogue)",spec?.evaluation_objective],
+    ["Control","Wazuh"],["Run",run.run_id],["Operation",run.operation_id],["Endpoint",run.hosts?.join(", ")],
+    ["Execution time (UTC)",run.execution_time],["Collection window (UTC)",[run.window_start,run.window_end].filter(Boolean).join(" to ")],
+    ["Archive collection",run.archive_collection_status],
+    ["Collection checks",compareIssues(run).join("; ") || "Saved checks passed; completeness is not guaranteed."]
+  ]){add(dl,"dt",key);add(dl,"dd",value || "Not recorded");}
+  add(body,"h2","Findings");
+  add(body,"p",plural(rows.length,"scored step") + "; " + rows.filter(hasMatchedAlert).length +
+    " with a matched alert; " + rows.filter(hasExactTag).length + " with an exact ATT&CK tag; " +
+    rows.filter(r => r.outcome === "telemetry_only").length + " logged without a matched alert.");
+  if (rows.length){
+    const table = add(body,"table"), head = add(add(table,"thead"),"tr"), tbody = add(table,"tbody");
+    for (const title of ["Tested step","Execution","Wazuh evidence","Interpretation"]) add(head,"th",title).scope = "col";
+    for (const r of rows){
+      const tr = add(tbody,"tr"), step = add(tr,"td",r.ability_name || "Unnamed step");
+      add(step,"small",[r.technique_id,r.run_utc].filter(Boolean).join(" · "));
+      if (r.link_id) add(step,"small","CALDERA link: " + r.link_id);
+      add(tr,"td",r.execution || "Not recorded");
+      const evidence = add(tr,"td"), rules = wazuhRules(r,true);
+      if (hasMatchedAlert(r) && rules.length) rules.forEach(x => add(evidence,"div","Rule " + x.id + ": " + (x.description || "Description not saved")));
+      else add(evidence,"div",evidenceKind(r));
+      if (r.alert_mitre_ids) add(evidence,"small","Alert tags: " + String(r.alert_mitre_ids).replaceAll(";",", "));
+      if (r.matched_archive_event_count != null) add(evidence,"small","Matched archive events: " + r.matched_archive_event_count);
+      add(tr,"td",finding(r));
+    }
+  } else add(body,"p","No scored steps were saved for this run.");
+  add(body,"h2","Limitations");
+  add(body,"p","An alert or matching ATT&CK tag alone does not confirm the behaviour tested. No match means no matching evidence was found in the collected records. This report does not establish prevention or a completed response.");
+  return "<!doctype html>" + doc.documentElement.outerHTML;
+}
 
 /* run view */
 const STATES = {running: ["wait", "Running"], done: ["ok", "Finished"], error: ["bad", "Finished with a problem"], unknown: ["wait", "No record of this run in the console"]};
@@ -891,7 +955,7 @@ function renderScenarios(){
     const card = el("div", "scard"), tags = el("div", "tags"), pills = el("div", "pills"), last = el("div", "last"), act = el("div", "act"), rows = lastRun(sp);
     (sp.tactics || []).forEach(t => tags.append(el("span", "tag", tacticName(t))));   // from the scenario's CALDERA export
     (sp.expected_techniques || []).forEach(t => pills.append(el("span", "pill", t)));
-    if (rows) last.append(segBar(rows, false), el("div", "small", `Last run ${fmtTime(rows[0].run_utc)} · ${rows.filter(r => isDetected(r.outcome)).length} of ${rows.length} detected`));
+    if (rows) last.append(segBar(rows, false), el("div", "small", `Last run ${fmtTime(rows[0].run_utc)} · ${rows.filter(hasMatchedAlert).length} of ${rows.length} steps with a matched alert`));
     else last.append(el("div", "small", "Not run yet"));
     const b = el("button", SERVED ? "btn pri launch" : "btn", SERVED ? "Launch" : "Show command");
     b.type = "button"; b.onclick = () => SERVED ? launch(sp) : showCmd(sp); act.append(b);
@@ -937,7 +1001,7 @@ function compareIssues(run){
   return issues;
 }
 function evidenceKind(row){
-  if (Number(row.matched_alert_count) > 0 || isDetected(row.outcome)) return "Matched alert";
+  if (hasMatchedAlert(row)) return "Matched alert";
   if (Number(row.matched_archive_event_count) > 0 || row.outcome === "telemetry_only") return "Telemetry only";
   if (!row.outcome || row.outcome === "not_assessable") return "Not assessable";
   return "No matching evidence";
@@ -1040,7 +1104,7 @@ function showView(){
   });
 }
 addEventListener("hashchange", showView);
-fill("fRun", "All runs", [...new Set(DATA.rows.map(r => r.run_id))], runLabel);
+fill("fRun", "All runs", DATA.runs.map(r => r.run_id), runLabel);
 fill("fScenario", "All scenarios", [...new Set(DATA.rows.map(r => r.scenario))], op => `${scenarioName(op)} · ${String(op).split("-").pop()}`);
 updateAttackFilters();
 fill("fOutcome", "All outcomes", OUT, o => LABELS[o]);
@@ -1054,6 +1118,10 @@ $("clearFilters").onclick = () => {
   state.run = state.scenario = state.tactic = state.technique = state.outcome = state.search = "";
   ["fRun", "fScenario", "fOutcome", "search"].forEach(id => { $(id).value = ""; });
   updateAttackFilters(); render();
+};
+$("dlReport").onclick = () => {
+  const run = DATA.runs.find(x => x.run_id === state.run);
+  if (run) download("findings-" + run.run_id.replace(/[^a-zA-Z0-9_.-]/g, "_") + ".html", runReport(run), "text/html;charset=utf-8");
 };
 $("dlCsv").onclick = () => download("results-combined.csv", toCsv(filtered()), "text/csv");
 $("dlNav").onclick = () => download("navigator-wazuh.json", navLayer(filtered()), "application/json");

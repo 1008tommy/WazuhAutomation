@@ -1,6 +1,7 @@
 {
   "scenario": "renamed-utility",
   "name": "Renamed Utility Lab",
+  "evaluation_objective": "Check what Wazuh records when a renamed utility is prepared and run.",
   "adversary_id": "10749bee-8a14-4917-b3e7-4608546b13d7",
   "planner": "atomic",
   "source": null,

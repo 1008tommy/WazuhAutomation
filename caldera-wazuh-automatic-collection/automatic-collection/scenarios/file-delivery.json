@@ -1,6 +1,7 @@
 {
   "scenario": "file-delivery",
   "name": "File Delivery and Execution Lab",
+  "evaluation_objective": "Check what Wazuh records when a test file is delivered and its script is executed.",
   "adversary_id": "49c1623f-f8c0-4de2-9424-a139963334ff",
   "planner": "atomic",
   "source": null,

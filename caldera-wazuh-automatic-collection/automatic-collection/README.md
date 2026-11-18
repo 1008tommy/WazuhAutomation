@@ -45,6 +45,20 @@ outcome also has its own glyph (tick, !, eye, cross, ?) and a text label, so no 
 colour alone. In **Run a scenario**, each scenario card lists its ATT&CK tactics in step order, read
 from that scenario's CALDERA adversary export in `Scenarios/` (PyYAML, from `requirements.txt`).
 
+### Export findings for one run
+
+In **Results**, select a run and click **Export run report**. Open the downloaded HTML offline or
+use your browser’s Print / Save as PDF. The report includes every scored step in that run even
+when other dashboard filters hide rows. It includes the scenario objective from the current
+catalogue (when available), run and endpoint details, collection checks, execution status, rule
+IDs/descriptions and the interpretation of the saved evidence.
+
+**Steps with a matched alert** counts steps, not alerts. **Exact ATT&CK tag match** counts only
+identical technique IDs; a parent or sub-technique tag is related, not exact. **Related alert —
+technique unconfirmed** means an alert matched the step but the tag was different or missing.
+Even an exact tag does not independently verify that Wazuh recognised the intended behaviour.
+The CSV and JSON keep their original outcome codes.
+
 ### Compare saved runs
 
 Open **Compare runs**, choose a scenario, then pick a baseline and a later execution. Start with

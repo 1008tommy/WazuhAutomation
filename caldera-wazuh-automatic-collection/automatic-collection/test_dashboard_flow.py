@@ -188,6 +188,52 @@ class CompareRunsTests(unittest.TestCase):
             step["operation_name"] = "file-delivery-unrelated"
         self.assertIsNone(build_dashboard.comparison_metadata(r, self.specs)["compare_scenario"])
 
+    def test_report_and_kpis_use_selected_run_evidence(self):
+        if not shutil.which("node") or subprocess.run(
+                ["node", "-e", "require.resolve('jsdom')"], capture_output=True).returncode:
+            self.skipTest("Install jsdom for the optional offline report interaction test")
+        run = self.run_data(1, "opA", complete=False)
+        rows = run["result"]["results"]
+        rows[0].update(ability_name="Upload", technique_id="T1041", technique_match="different",
+                       alert_mitre_ids="T1070.004", evidence=[{"rule_id": "100",
+                       "rule_description": "File deleted <img src=x>", "rule_mitre_ids": ["T1070.004"]},
+                       {"rule_id": "999", "rule_description": "Ambiguous candidate", "ambiguous": True}])
+        for kind in ["exact", "related", "none"]:
+            rows.append(dict(rows[0], ability_name=kind, technique_match=kind, outcome=(
+                "detected_unlabelled" if kind == "none" else "detected_labelled")))
+        other = self.run_data(2, "opB")
+        specs = [dict(self.specs[0], evaluation_objective="Review test evidence.")]
+        data = build_dashboard.build_data([run, other], specs)
+        script = r"""
+const assert = require("node:assert/strict"), {JSDOM} = require("jsdom");
+const {window:w} = new JSDOM(require("fs").readFileSync(0,"utf8"), {runScripts:"dangerously", pretendToBeVisual:true});
+const get = id => w.document.getElementById(id);
+assert.equal(get("dlReport").disabled,true);
+get("fRun").value="20261101T120000Z-opA"; get("fRun").dispatchEvent(new w.Event("change"));
+const counts = [...get("kpis").children].map(t => t.querySelector(".n").firstChild.textContent);
+assert.deepEqual(counts.slice(0,4),["5","4","1","1"]);
+get("search").value="Upload";get("search").dispatchEvent(new w.Event("input"));
+assert.equal(get("tbody").querySelectorAll("tr.row").length,1);
+let file;
+w.download = (name,html,type) => {file={name,html,type};};
+get("dlReport").click();
+assert.match(file.name,/opA\.html$/);
+const doc = new JSDOM(file.html).window.document;
+assert.equal(doc.querySelectorAll("tbody tr").length,5);
+assert.equal(doc.querySelectorAll("script,img").length,0);
+assert.doesNotMatch(doc.body.textContent,/opB|Ambiguous candidate/);
+assert.match(doc.body.textContent,/Review test evidence/);
+assert.match(doc.body.textContent,/collection completeness not confirmed/);
+const line = doc.querySelector("tbody tr").textContent;
+assert.match(line,/Rule 100: File deleted <img src=x>/);
+assert.match(line,/Different tag.*does not confirm the tested behaviour/);
+assert.match(doc.body.textContent,/Related tag \(parent or sub-technique\)/);
+assert.match(doc.body.textContent,/No tag\./);
+assert.match(doc.body.textContent,/No matched alert|Logged without a matched alert/);
+w.close();
+"""
+        subprocess.run(["node", "-e", script], input=build_dashboard.render_html(data), text=True, check=True)
+
     def test_offline_compare_controls(self):
         # Optional: Node with jsdom exercises the actual embedded dashboard script offline.
         if not shutil.which("node") or subprocess.run(

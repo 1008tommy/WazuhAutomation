@@ -1,6 +1,7 @@
 {
   "scenario": "discovery",
   "name": "Discovery Scenario",
+  "evaluation_objective": "Check what Wazuh records during queries for host and security software information.",
   "adversary_id": "c6946236-d4e4-4e4f-8dc7-433c84a702a3",
   "planner": "atomic",
   "source": null,

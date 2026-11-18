@@ -1,6 +1,7 @@
 {
   "scenario": "scheduled-task",
   "name": "Scheduled Task Creation",
+  "evaluation_objective": "Check what Wazuh records during the scheduled-task scenario.",
   "adversary_id": "a8a34f58-b875-4d1f-9969-4b32f58da907",
   "planner": "atomic",
   "source": null,
