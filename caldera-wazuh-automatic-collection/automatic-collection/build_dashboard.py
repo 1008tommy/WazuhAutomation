@@ -679,7 +679,9 @@ for (const r of DATA.runs){
 const inScenario = id => !state.scenario || runGroups.get(id) === state.scenario;
 const inScope = id => (!state.run || state.run === id) && inScenario(id);
 const resultScenarioName = r => groupLabels.get(runGroups.get(r.run_id)) || scenarioName(r.scenario);
-function syncRunFilters(){
+function syncRunFilters({narrowRuns = false} = {}){
+  const choices = narrowRuns ? DATA.runs.filter(r => inScenario(r.run_id)) : DATA.runs;
+  fill("fRun", "All runs", choices.map(r => r.run_id), runLabel);
   if (state.run && !inScenario(state.run)) state.run = "";
   $("fRun").value = state.run;
   $("fScenario").value = state.scenario;
@@ -1188,7 +1190,6 @@ function showView(){
   });
 }
 addEventListener("hashchange", showView);
-fill("fRun", "All runs", DATA.runs.map(r => r.run_id), runLabel);
 fill("fScenario", "All scenarios", [...groupLabels.keys()].sort((a,b) => groupLabels.get(a).localeCompare(groupLabels.get(b))),
   key => groupLabels.get(key));
 syncRunFilters();
@@ -1201,7 +1202,7 @@ $("fRun").onchange = e => {
 $("fScenario").onchange = e => {
   state.scenario = e.target.value;
   if (!state.scenario) state.run = "";
-  syncRunFilters(); render();
+  syncRunFilters({narrowRuns: true}); render();
 };
 $("fTactic").onchange = e => { state.tactic = e.target.value; updateAttackFilters(); render(); };
 $("fTechnique").onchange = e => { state.technique = e.target.value; render(); };

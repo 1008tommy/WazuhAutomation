@@ -296,8 +296,11 @@ pick("fRun","");assert.equal(get("fScenario").value,delivery);assert.equal(count
 assert.equal(get("health").children.length,2);
 pick("fTechnique","T1105");assert.equal(count(),2);
 pick("fScenario",discovery);
-assert.deepEqual(opts("fRun"),["",a,b,c]);assert.equal(get("fTechnique").value,"");assert.equal(count(),2);
-pick("fRun",c);pick("fScenario",delivery);assert.equal(get("fRun").value,"");assert.equal(count(),4);
+assert.deepEqual(opts("fRun"),["",c]);assert.equal(get("fTechnique").value,"");assert.equal(count(),2);
+pick("fRun",c);assert.deepEqual(opts("fRun"),["",a,b,c]);assert.equal(get("fRun").value,c);
+assert.deepEqual(new Set(opts("fScenario")),new Set(["",delivery,discovery]));
+pick("fScenario",delivery);assert.equal(get("fRun").value,"");assert.equal(count(),4);
+assert.deepEqual(opts("fRun"),["",a,b]);
 pick("fRun",b);pick("fScenario","");assert.deepEqual(opts("fRun"),["",a,b,c]);assert.equal(count(),6);
 pick("fRun",c);pick("fTactic","discovery");pick("fOutcome","telemetry_only");
 get("clearFilters").click();
