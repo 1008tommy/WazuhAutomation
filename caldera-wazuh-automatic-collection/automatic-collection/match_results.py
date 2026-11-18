@@ -67,9 +67,8 @@ def collection_complete(collected, archives, window_end):
 
 def row_outcome(status, alert_cands, archive_cands, complete, step_technique):
     """First matching rule wins (plan 4.4)."""
-    responded = any("active_response" in (c.get("rule_groups") or []) for c in alert_cands)
-    if status in (1, 124) and responded:
-        return "prevented", "n/a"
+    # Execution failure plus an active-response alert does not prove prevention.
+    # Prevention is not assessed by the current evidence adapters.
     if alert_cands:
         kind = technique_match_kind(step_technique, [m for c in alert_cands for m in (c.get("rule_mitre_ids") or [])])
         return ("detected_labelled" if kind in ("exact", "related") else "detected_unlabelled"), kind
@@ -357,7 +356,7 @@ def correlate(report, collected, agent_id, window_seconds=120, host_filter=None,
             adapted = dict(archives, alerts=archives.get("events"), alert_count=archives.get("event_count"))
             archive_result = _match_records(report, adapted, agent_id, window_seconds, host_filter)
     result["schema_version"] = "0.5"
-    result["matcher_scope"] = "Sysmon process creation (executor, child, scheduled-task action, reported T1105/T1036.003 file creation) and PowerShell 4104 script blocks; harness artifacts excluded; six-outcome scoring"
+    result["matcher_scope"] = "Sysmon process creation (executor, child, scheduled-task action, reported T1105/T1036.003 file creation) and PowerShell 4104 script blocks; harness artifacts excluded; five-outcome scoring; prevention not assessed"
     result["archive_collection_status"] = archive_status
     result["archive_collection_error"] = archives.get("error") if archives else None
     result["unmatched_archive_indices"] = archive_result["unmatched_alert_indices"] if archive_result else []

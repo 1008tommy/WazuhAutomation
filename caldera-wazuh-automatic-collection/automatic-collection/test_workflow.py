@@ -311,6 +311,55 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual((row['outcome'],row['technique_match']),('detected_labelled','related'))
         self.assertEqual(self.result([scriptblock_event(mitre='T1082')],rep=tagged_report('T1033'))['outcome'],'detected_unlabelled')
 
+    def test_active_response_and_failure_do_not_establish_prevention(self):
+        for status in (1, 124):
+            with self.subTest(status=status):
+                rep = tagged_report('T1057')
+                rep['steps']['a']['steps'][0]['status'] = status
+                alert = scriptblock_event(mitre='T1057')
+                alert['rule']['groups'] = ['active_response']
+                row = self.result([alert], rep=rep)
+                self.assertEqual(row['outcome'], 'detected_labelled')
+                self.assertEqual(row['caldera_status'], status)
+                self.assertEqual(row['matched_alert_count'], 1)
+
+    def test_failure_without_alert_remains_not_assessable(self):
+        for status in (1, 124):
+            rep = report()
+            rep['steps']['a']['steps'][0]['status'] = status
+            self.assertEqual(self.result(rep=rep)['outcome'], 'not_assessable')
+
+    def test_dashboard_withdraws_legacy_prevention_without_mutating_source(self):
+        row = {'outcome': 'prevented', 'caldera_status': 1, 'rule_ids': '123',
+               'notes': ['original note']}
+        run = {'run_id': 'old-run', 'meta': {}, 'result': {'results': [row]}}
+        data = build_dashboard.build_data([run], [])
+        flat = data['rows'][0]
+        self.assertEqual(flat['outcome'], 'not_assessable')
+        self.assertEqual(flat['legacy_outcome'], 'prevented')
+        self.assertEqual(flat['rule_ids'], '123')
+        self.assertEqual(row['outcome'], 'prevented')
+        self.assertEqual(row['notes'], ['original note'])
+        self.assertNotIn('prevented', build_dashboard.OUTCOME_ORDER)
+        self.assertNotIn('prevented', build_dashboard.NAV_SCORE)
+        self.assertNotIn('["Prevented",', build_dashboard.HTML_TEMPLATE)
+        self.assertEqual(build_dashboard.navigator_layer(data['rows'])['techniques'], [])
+
+    def test_active_response_and_failed_execution_do_not_infer_prevention(self):
+        for status in (1, 124):
+            rep = tagged_report('T1057')
+            rep['steps']['a']['steps'][0]['status'] = status
+            for tag, expected in [('T1057', 'detected_labelled'), ('T1082', 'detected_unlabelled')]:
+                alert = scriptblock_event(mitre=tag)
+                alert['rule']['groups'] = ['active_response']
+                row = self.result([alert], rep=rep)
+                self.assertEqual(row['outcome'], expected)
+                self.assertEqual(row['execution'], 'nonzero_status_review')
+                self.assertEqual(row['caldera_status'], status)
+                self.assertEqual(row['matched_alert_count'], 1)
+                self.assertEqual(row['rule_ids'], '91815')
+            self.assertEqual(self.result(rep=rep)['outcome'], 'not_assessable')
+
     def test_outcome_telemetry_only_from_archive(self):
         e=scriptblock_event()
         self.assertEqual(self.result(archives=export([e],True),rep=tagged_report('T1057'))['outcome'],'telemetry_only')
