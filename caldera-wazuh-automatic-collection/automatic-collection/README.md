@@ -35,6 +35,10 @@ The technique choices follow the selected run, scenario and tactic. They filter 
 tested; the Wazuh alert's ATT&CK tag remains a separate result column. **Clear filters** restores
 the full view.
 
+The **Wazuh rule** column shows each matched rule's ID and the description saved in Wazuh's alert.
+Open a step to compare that rule text with the matched event's command or file path. The description
+is Wazuh's wording, so it may describe broader activity than the CALDERA technique being tested.
+
 Outcome colours are chosen for colour-blind readers: blue when Wazuh raised an alert (darker is
 stronger), amber for a log without an alert, red for missed and grey for not assessable. Every
 outcome also has its own glyph (tick, !, eye, cross, ?) and a text label, so no result depends on
