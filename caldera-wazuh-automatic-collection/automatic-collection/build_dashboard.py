@@ -97,7 +97,15 @@ def load_runs(runs_dir):
                 meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
             except (OSError, ValueError):
                 meta = {}
-        runs.append({"run_id": run_dir.name, "result": result, "meta": meta,
+        # Manual operations can all be named "Test"; the saved profile identifies the scenario.
+        try:
+            report = json.loads((run_dir / "caldera-report.json").read_text(encoding="utf-8-sig"))
+            profile = report.get("adversary") if isinstance(report, dict) else None
+        except (OSError, ValueError):
+            profile = None
+        identity = {k: profile[k] for k in ("adversary_id", "name")
+                    if isinstance(profile, dict) and profile.get(k)}
+        runs.append({"run_id": run_dir.name, "profile": identity, "result": result, "meta": meta,
                      "cleanup": saved_cleanup(run_dir, meta)})
     return runs
 
@@ -186,7 +194,8 @@ def build_data(runs, scenarios):
             rows.append(flat)
         window = result.get("collection_window", {})
         run_summaries.append({
-            "run_id": run["run_id"], "scenario": scenario, **comparison_metadata(run, scenarios),
+            "run_id": run["run_id"], "scenario": scenario, "profile": run.get("profile", {}),
+            **comparison_metadata(run, scenarios),
             "cleanup": cleanup,
             "window_start": window.get("start") or meta.get("window_start"),
             "window_end": window.get("end") or meta.get("window_end"),
@@ -657,9 +666,29 @@ function finding(r){
   return LABELS[r.outcome] || "Not assessable";
 }
 const state = {run: "", scenario: "", tactic: "", technique: "", outcome: "", search: "", sort: "run_utc", dir: -1};
+// Resolve both dropdowns from the same per-run identity, not timestamped operation names.
+const runGroups = new Map(), groupLabels = new Map();
+for (const r of DATA.runs){
+  const profile = r.profile || {};
+  const spec = profile.adversary_id ? DATA.scenarios.find(s => s.adversary_id === profile.adversary_id)
+    : DATA.scenarios.find(s => s.scenario === r.compare_scenario || (profile.name && s.name === profile.name));
+  const key = spec ? "scenario:" + spec.scenario : profile.adversary_id ? "profile:" + profile.adversary_id : "run:" + r.run_id;
+  runGroups.set(r.run_id, key);
+  groupLabels.set(key, spec?.name || profile.name || (r.scenario === r.run_id ? r.run_id : r.scenario + " · " + runLabel(r.run_id)));
+}
+const inScenario = id => !state.scenario || runGroups.get(id) === state.scenario;
+const inScope = id => (!state.run || state.run === id) && inScenario(id);
+const resultScenarioName = r => groupLabels.get(runGroups.get(r.run_id)) || scenarioName(r.scenario);
+function syncRunFilters(){
+  if (state.run && !inScenario(state.run)) state.run = "";
+  fill("fRun", "All runs", DATA.runs.filter(r => inScenario(r.run_id)).map(r => r.run_id), runLabel);
+  $("fRun").value = state.run;
+  $("fScenario").value = state.scenario;
+  updateAttackFilters();
+}
 function filtered(){
   const q = state.search.toLowerCase();
-  return DATA.rows.filter(r => (!state.run || r.run_id === state.run) && (!state.scenario || r.scenario === state.scenario)
+  return DATA.rows.filter(r => inScope(r.run_id)
     && (!state.tactic || r.tactic_norm === state.tactic) && (!state.technique || r.technique_id === state.technique)
     && (!state.outcome || r.outcome === state.outcome)
     && (!q || [r.ability_name, r.technique_id, r.technique_name, r.rule_ids, r.alert_mitre_ids,
@@ -775,7 +804,7 @@ function renderTable(rows){
       rules.append(entry);
     });
     if (r.alert_mitre_ids && r.technique_match === "different") tag.append(el("div", "small", "tested as " + (r.technique_id || "")));
-    tr.append(el("td", "time", fmtShort(r.run_utc)), el("td", null, scenarioName(r.scenario)), el("td", null, r.ability_name || ""),
+    tr.append(el("td", "time", fmtShort(r.run_utc)), el("td", null, resultScenarioName(r)), el("td", null, r.ability_name || ""),
       tech, oc, rules, tag, el("td", "num", tta(r.time_to_alert_s)));
     const det = el("tr", "det"), td = el("td");
     det.hidden = true; td.colSpan = COLS.length; td.append(details(r)); det.append(td);
@@ -798,7 +827,7 @@ function renderGaps(rows){
 }
 function renderHealth(){
   const h = $("health"); h.replaceChildren();
-  const runs = DATA.runs.filter(r => !state.run || r.run_id === state.run);
+  const runs = DATA.runs.filter(r => inScope(r.run_id));
   if (!runs.length) { h.append(el("p", "muted", "No runs yet.")); return; }
   const at = v => v ? fmtSec(v) : "not recorded";
   runs.forEach(r => {
@@ -811,7 +840,7 @@ function renderHealth(){
     const archiveIssue = !!r.archive_collection_status && r.archive_collection_status !== "success";
     const issue = queueIssue || archiveIssue;
     const headline = steps.length ? `${observed} of ${steps.length} steps have Wazuh evidence` : "No scored steps";
-    top.append(icon(issue ? "warn" : !steps.length || missing ? "wait" : "ok"), el("span", "strong", headline), el("span", "muted", scenarioName(r.scenario)));
+    top.append(icon(issue ? "warn" : !steps.length || missing ? "wait" : "ok"), el("span", "strong", headline), el("span", "muted", resultScenarioName(r)));
     d.append(top);
     if (queueIssue) d.append(el("p", "itext", "Wazuh reported an agent queue warning; review whether telemetry was lost."));
     if (archiveIssue) d.append(el("p", "itext", "Raw archive evidence was unavailable; review this run before comparing coverage."));
@@ -838,7 +867,7 @@ function fill(id, label, values, show){
   values.forEach(v => { if (!v) return; const o = el("option", null, show ? show(v) : v); o.value = v; s.append(o); });
 }
 function updateAttackFilters(){
-  const scope = DATA.rows.filter(r => (!state.run || r.run_id === state.run) && (!state.scenario || r.scenario === state.scenario));
+  const scope = DATA.rows.filter(r => inScope(r.run_id));
   const rank = t => { const n = DATA.tactic_order.indexOf(t); return n < 0 ? DATA.tactic_order.length : n; };
   const tactics = [...new Set(scope.map(r => r.tactic_norm).filter(Boolean))]
     .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
@@ -1160,20 +1189,28 @@ function showView(){
   });
 }
 addEventListener("hashchange", showView);
-fill("fRun", "All runs", DATA.runs.map(r => r.run_id), runLabel);
-fill("fScenario", "All scenarios", [...new Set(DATA.rows.map(r => r.scenario))], op => `${scenarioName(op)} · ${String(op).split("-").pop()}`);
-updateAttackFilters();
+fill("fScenario", "All scenarios", [...groupLabels.keys()].sort((a,b) => groupLabels.get(a).localeCompare(groupLabels.get(b))),
+  key => groupLabels.get(key));
+syncRunFilters();
 fill("fOutcome", "All outcomes", OUT, o => LABELS[o]);
-$("fRun").onchange = e => { state.run = e.target.value; updateAttackFilters(); render(); };
-$("fScenario").onchange = e => { state.scenario = e.target.value; updateAttackFilters(); render(); };
+$("fRun").onchange = e => {
+  state.run = e.target.value;
+  if (state.run) state.scenario = runGroups.get(state.run);
+  syncRunFilters(); render();
+};
+$("fScenario").onchange = e => {
+  state.scenario = e.target.value;
+  if (!state.scenario) state.run = "";
+  syncRunFilters(); render();
+};
 $("fTactic").onchange = e => { state.tactic = e.target.value; updateAttackFilters(); render(); };
 $("fTechnique").onchange = e => { state.technique = e.target.value; render(); };
 $("fOutcome").onchange = e => { state.outcome = e.target.value; render(); };
 $("search").oninput = e => { state.search = e.target.value; render(); };
 $("clearFilters").onclick = () => {
   state.run = state.scenario = state.tactic = state.technique = state.outcome = state.search = "";
-  ["fRun", "fScenario", "fOutcome", "search"].forEach(id => { $(id).value = ""; });
-  updateAttackFilters(); render();
+  ["fOutcome", "search"].forEach(id => { $(id).value = ""; });
+  syncRunFilters(); render();
 };
 $("dlReport").onclick = () => {
   const run = DATA.runs.find(x => x.run_id === state.run);

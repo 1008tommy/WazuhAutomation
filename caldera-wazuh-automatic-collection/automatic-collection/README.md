@@ -30,7 +30,9 @@ Prerequisites in the lab: Caldera running in tmux, the scenario bundle installed
 - **Rebuild the static report:** `python build_dashboard.py` writes `dashboard/index.html` (a
   self-contained, air-gapped page), a combined CSV and an ATT&CK Navigator layer.
 
-In **Results**, use the ATT&CK tactic and technique filters to narrow the saved CALDERA steps.
+In **Results**, selecting a run selects its scenario. Selecting a scenario lists only its runs;
+**All runs** keeps the scenario selected, and **All scenarios** restores the full run list.
+Use the ATT&CK tactic and technique filters to narrow the saved CALDERA steps.
 The technique choices follow the selected run, scenario and tactic. They filter the technique being
 tested; the Wazuh alert's ATT&CK tag remains a separate result column. **Clear filters** restores
 the full view.

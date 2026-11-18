@@ -264,6 +264,43 @@ w.close();
 """
         subprocess.run(["node", "-e", script], input=build_dashboard.render_html(data), text=True, check=True)
 
+    def test_results_filters_follow_run_and_scenario_in_both_directions(self):
+        if not shutil.which("node") or subprocess.run(
+                ["node", "-e", "require.resolve('jsdom')"], capture_output=True).returncode:
+            self.skipTest("Install jsdom for the optional dashboard interaction test")
+        runs = [self.run_data(1, "one"), self.run_data(2, "two"), self.run_data(3, "three", name="discovery")]
+        specs = [dict(self.specs[0], adversary_id="profile-a"), dict(self.specs[1], adversary_id="profile-b")]
+        # Manual and automatically named executions of the same profile must share an option.
+        runs[0]["profile"] = {"adversary_id": "profile-a"}
+        for row in runs[0]["result"]["results"]:
+            row["operation_name"] = "Test"
+        for row in runs[2]["result"]["results"]:
+            row.update(technique_id="T1057", tactic="discovery")
+        data = build_dashboard.build_data(runs, specs)
+        script = r"""
+const assert=require("node:assert/strict"), {JSDOM}=require("jsdom");
+const {window:w}=new JSDOM(require("fs").readFileSync(0,"utf8"),{runScripts:"dangerously",pretendToBeVisual:true});
+const get=id=>w.document.getElementById(id), opts=id=>Array.from(get(id).options,o=>o.value);
+const pick=(id,value)=>{get(id).value=value;assert.equal(get(id).value,value);get(id).dispatchEvent(new w.Event("change"));};
+const count=()=>get("tbody").querySelectorAll("tr.row").length;
+const [all,a,b,c]=opts("fRun"), delivery="scenario:file-delivery", discovery="scenario:discovery";
+assert.deepEqual(new Set(opts("fScenario")),new Set(["",delivery,discovery]));
+pick("fRun",a);
+assert.equal(get("fScenario").value,delivery);assert.deepEqual(opts("fRun"),["",a,b]);assert.equal(count(),2);
+pick("fRun","");assert.equal(get("fScenario").value,delivery);assert.equal(count(),4);
+assert.equal(get("health").children.length,2);
+pick("fTechnique","T1105");assert.equal(count(),2);
+pick("fScenario",discovery);
+assert.deepEqual(opts("fRun"),["",c]);assert.equal(get("fTechnique").value,"");assert.equal(count(),2);
+pick("fRun",c);pick("fScenario",delivery);assert.equal(get("fRun").value,"");assert.equal(count(),4);
+pick("fRun",b);pick("fScenario","");assert.deepEqual(opts("fRun"),["",a,b,c]);assert.equal(count(),6);
+pick("fRun",c);pick("fTactic","discovery");pick("fOutcome","telemetry_only");
+get("clearFilters").click();
+for(const id of ["fScenario","fRun","fTactic","fTechnique","fOutcome"]) assert.equal(get(id).value,"");
+assert.deepEqual(opts("fRun"),["",a,b,c]);assert.equal(count(),6);w.close();
+"""
+        subprocess.run(["node", "-e", script], input=build_dashboard.render_html(data), text=True, check=True)
+
     def test_offline_compare_controls(self):
         # Optional: Node with jsdom exercises the actual embedded dashboard script offline.
         if not shutil.which("node") or subprocess.run(
