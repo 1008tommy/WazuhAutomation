@@ -25,9 +25,9 @@ except ImportError:
 HERE = Path(__file__).resolve().parent
 EXPORTS = HERE.parents[1] / "Scenarios"   # CALDERA adversary exports, one YAML per scenario
 
-NAV_SCORE = {"prevented": 100, "detected_labelled": 100, "detected_unlabelled": 75,
+NAV_SCORE = {"detected_labelled": 100, "detected_unlabelled": 75,
              "telemetry_only": 40, "missed": 0, "not_assessable": 0}
-OUTCOME_ORDER = ["prevented", "detected_labelled", "detected_unlabelled",
+OUTCOME_ORDER = ["detected_labelled", "detected_unlabelled",
                  "telemetry_only", "missed", "not_assessable"]
 TACTIC_ORDER = ["reconnaissance", "resource-development", "initial-access", "execution",
                 "persistence", "privilege-escalation", "defense-evasion", "credential-access",
@@ -124,6 +124,13 @@ def build_data(runs, scenarios):
         scenario = meta.get("scenario") or operation or run["run_id"]
         for row in result.get("results", []):
             flat = dict(row)
+            # Preserve original evidence, but do not reuse an old prevention inference.
+            if flat.get("outcome") == "prevented":
+                flat["legacy_outcome"] = "prevented"
+                flat["outcome"] = "not_assessable"
+                flat["notes"] = list(flat.get("notes", [])) + [
+                    "Legacy prevention inference withdrawn; reprocess evidence for detection outcomes."
+                ]
             flat["run_id"] = run["run_id"]
             flat["scenario"] = scenario
             flat["tactic_norm"] = norm_tactic(row.get("tactic"))
@@ -175,7 +182,7 @@ def navigator_layer(rows):
                   for tech, info in sorted(best.items())]
     return {"name": "Wazuh BAS coverage", "domain": "enterprise-attack",
             "versions": {"layer": "4.5", "navigator": "4.9.1", "attack": "15"},
-            "description": "Outcome per tested technique. 100 labelled/prevented, 75 unlabelled, 40 telemetry only, 0 missed.",
+            "description": "Outcome per tested technique. 100 labelled, 75 unlabelled, 40 telemetry only, 0 missed.",
             "gradient": {"colors": ["#d03b3b", "#f0efec", "#2a78d6"], "minValue": 0, "maxValue": 100},
             "techniques": techniques}
 
@@ -220,11 +227,11 @@ HTML_TEMPLATE = r"""<!doctype html>
   --accent:#c0267f; --accent-hover:#a51f6c; --accent-ink:#9d174d;
   /* Outcome colours, chosen for colour-blind readers: blue means Wazuh raised an alert (darker is
      stronger), amber a log but no alert, red missed, grey not assessable. Red against green, the
-     pair red-green colour blindness merges, is gone. Every pair of the six stays apart under
+     pair red-green colour blindness merges, is gone. Every pair of the remaining five stays apart under
      protan, deutan and tritan simulation (dataviz check, all pairs, worst dE 9.1, target 8) and
      under normal vision (worst dE 17.6, floor 15). Each outcome also has its own glyph and a text
      label, so colour is never the only cue. Pink is chrome only and never marks data. */
-  --prevented:#104281; --detected_labelled:#2a78d6; --detected_unlabelled:#86b6ef;
+  --detected_labelled:#2a78d6; --detected_unlabelled:#86b6ef;
   --telemetry_only:#eda100; --missed:#d03b3b; --not_assessable:#898781;
 }
 *{box-sizing:border-box}
@@ -284,7 +291,7 @@ h2{font-size:14px;font-weight:600;margin:0}
 .ico{display:inline-flex;flex:none}
 
 /* stat tiles */
-.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line2);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:var(--line2);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:18px}
 .kpi{background:#fff;padding:14px 16px 13px}
 .kpi .l{font-size:12px;color:var(--muted)}
 .kpi .n{font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin-top:4px}
@@ -458,7 +465,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
 const DATA = /*__DATA__*/null;
 const OUT = DATA.outcome_order;
 const SERVED = !!DATA.served;
-const LABELS = {prevented:"Prevented", detected_labelled:"Detected (labelled)", detected_unlabelled:"Detected (unlabelled)",
+const LABELS = {detected_labelled:"Detected (labelled)", detected_unlabelled:"Detected (unlabelled)",
   telemetry_only:"Telemetry only", missed:"Missed", not_assessable:"Not assessable"};
 const ADVICE = {
   detected_unlabelled: r => `An alert fired, but its ATT&CK tag is ${r.alert_mitre_ids || "empty"} rather than ${r.technique_id}. Review the rule's tag.`,
@@ -492,9 +499,8 @@ const specFor = op => (DATA.scenarios || []).find(sp => sp.scenario && String(op
 const scenarioName = op => { const sp = specFor(op); return sp ? (sp.name || sp.scenario) : String(op || ""); };
 const runLabel = id => { const m = /^(\d{8}T\d{6}Z)-(\w+)$/.exec(id || ""); return m ? `${fmtStamp(m[1])} · ${m[2]}` : String(id || ""); };
 /* Every outcome has a glyph as well as a colour, so no outcome depends on colour alone:
-   bar = prevented, tick = labelled, ! = unlabelled, eye = telemetry only, cross = missed, ? = not assessable. */
+   tick = labelled, ! = unlabelled, eye = telemetry only, cross = missed, ? = not assessable. */
 const GLYPHS = {
-  prevented: '<path d="M4.6 8h6.8"/>',
   detected_labelled: '<path d="M4.7 8.3l2.2 2.2 4.4-4.7"/>',
   detected_unlabelled: '<path d="M8 4.5v4.2"/><circle cx="8" cy="11.5" r=".4"/>',
   telemetry_only: '<path d="M3.2 8c1.3-2 2.9-3 4.8-3s3.5 1 4.8 3c-1.3 2-2.9 3-4.8 3S4.5 10 3.2 8z" stroke-width="1.5"/><circle cx="8" cy="8" r=".6"/>',
@@ -554,7 +560,7 @@ function filtered(){
 }
 function renderKpis(rows){
   const n = rows.length, c = o => rows.filter(r => r.outcome === o).length;
-  const lab = c("detected_labelled"), det = lab + c("detected_unlabelled"), vis = det + c("telemetry_only"), prev = c("prevented");
+  const lab = c("detected_labelled"), det = lab + c("detected_unlabelled"), vis = det + c("telemetry_only");
   const times = rows.map(r => r.time_to_alert_s).filter(v => v != null).sort((a, b) => a - b);
   const med = times.length ? times[Math.floor((times.length - 1) / 2)] : null;
   const runs = new Set(rows.map(r => r.run_id)).size;
@@ -563,7 +569,6 @@ function renderKpis(rows){
     ["Detected", String(det), `/ ${n}`, `${pct(det, n)}% raised an alert`],
     ["Correct technique", String(lab), `/ ${n}`, `${pct(lab, n)}% tagged as tested`],
     ["Visible in Wazuh", String(vis), `/ ${n}`, `${pct(vis, n)}% alert or log`],
-    ["Prevented", String(prev), `/ ${n}`, "Wazuh is detection-only"],
     ["Median time to alert", med != null ? tta(med) : "n/a", "", med != null && med > 120 ? "late: was the manager up?" : "event to alert"],
   ];
   const w = $("kpis"); w.replaceChildren();
@@ -660,7 +665,7 @@ function renderTable(rows){
 }
 function renderGaps(rows){
   const g = $("gaps"); g.replaceChildren();
-  const gaps = rows.filter(r => r.outcome !== "detected_labelled" && r.outcome !== "prevented");
+  const gaps = rows.filter(r => r.outcome !== "detected_labelled");
   if (!gaps.length) { g.append(el("p", "muted", rows.length ? "Every scored step was detected and tagged with the tested technique." : "No scored steps yet.")); return; }
   gaps.forEach(r => {
     const d = el("div", "item"), top = el("div", "itop");
@@ -677,7 +682,7 @@ function renderHealth(){
     const d = el("div", "item"), top = el("div", "itop"), facts = el("dl", "facts"), noise = [...new Set(r.harness_rule_ids || [])];
     const steps = DATA.rows.filter(row => row.run_id === r.run_id);
     const observed = steps.filter(row => row.event_collection === "confirmed" ||
-      ["prevented", "detected_labelled", "detected_unlabelled", "telemetry_only"].includes(row.outcome)).length;
+      ["detected_labelled", "detected_unlabelled", "telemetry_only"].includes(row.outcome)).length;
     const missing = steps.length - observed;
     const queueIssue = (r.queue_alert_rule_ids || []).length > 0;
     const archiveIssue = !!r.archive_collection_status && r.archive_collection_status !== "success";
@@ -737,7 +742,7 @@ function toCsv(rows){
   return "﻿" + cols.join(",") + "\n" + rows.map(r => cols.map(c => q(r[c])).join(",")).join("\n");
 }
 function navLayer(rows){
-  const S = {prevented: 100, detected_labelled: 100, detected_unlabelled: 75, telemetry_only: 40, missed: 0, not_assessable: 0}, best = {};
+  const S = {detected_labelled: 100, detected_unlabelled: 75, telemetry_only: 40, missed: 0, not_assessable: 0}, best = {};
   rows.forEach(r => { if (!r.technique_id) return; const s = S[r.outcome] || 0;
     if (!best[r.technique_id] || s > best[r.technique_id].score) best[r.technique_id] = {score: s, comment: r.outcome + "; rules " + (r.rule_ids || "none")}; });
   return JSON.stringify({name: "Wazuh BAS coverage", domain: "enterprise-attack", versions: {layer: "4.5", navigator: "4.9.1", attack: "15"},
