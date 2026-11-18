@@ -362,10 +362,13 @@ tr.det td{background:var(--sunken);border-top:0;padding:4px 14px 16px}
 td.empty{color:var(--muted);text-align:center;padding:22px}
 td.time{white-space:nowrap}
 td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
+.rule-cell{min-width:220px;max-width:320px;overflow-wrap:anywhere}
+.rule-cell .rule-entry+.rule-entry{margin-top:8px}
+.rule-cell .small{display:block;line-height:1.35}
 .facts{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:0 0 10px;font-size:12.5px}
 .facts dt{color:var(--muted)}
 .facts dd{margin:0;color:var(--ink2)}
-.evid{white-space:pre-wrap;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--ink2);margin:0;background:#fff;border:1px solid var(--line2);border-radius:7px;padding:10px 12px}
+.evid{white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--ink2);margin:0;background:#fff;border:1px solid var(--line2);border-radius:7px;padding:10px 12px}
 
 /* gaps and evidence collection */
 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
@@ -448,7 +451,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
         <input id="search" type="search" placeholder="Search ability, technique or rule" aria-label="Search">
         <button class="btn" id="clearFilters" type="button">Clear filters</button>
       </div>
-      <p class="small filter-note">ATT&amp;CK filters use the technique assigned to each CALDERA step; Wazuh alert tags are shown separately.</p>
+      <p class="small filter-note">ATT&amp;CK filters use the technique assigned to each CALDERA step. Wazuh rule descriptions and alert tags come from matched alerts; open a step to inspect the observed event.</p>
       <div class="kpis" id="kpis"></div>
       <section class="panel">
         <div class="ph"><h2>Outcome split</h2><span class="hint" id="splitHint"></span></div>
@@ -593,13 +596,28 @@ function fitLabels(root){ requestAnimationFrame(() => root.querySelectorAll(".sp
 })); }
 
 /* results view */
+function wazuhRules(r){
+  const rules = [], seen = new Set(), found = new Set();
+  (r.evidence || []).forEach(e => {
+    const id = String(e.rule_id || "").trim(), description = String(e.rule_description || "").trim();
+    if (!id) return;
+    found.add(id);
+    const key = JSON.stringify([id, description]);
+    if (!seen.has(key)) { rules.push({id, description}); seen.add(key); }
+  });
+  String(r.rule_ids || "").split(";").map(id => id.trim()).filter(Boolean).forEach(id => {
+    if (!found.has(id)) rules.push({id, description: ""});
+  });
+  return rules;
+}
 const state = {run: "", scenario: "", tactic: "", technique: "", outcome: "", search: "", sort: "run_utc", dir: -1};
 function filtered(){
   const q = state.search.toLowerCase();
   return DATA.rows.filter(r => (!state.run || r.run_id === state.run) && (!state.scenario || r.scenario === state.scenario)
     && (!state.tactic || r.tactic_norm === state.tactic) && (!state.technique || r.technique_id === state.technique)
     && (!state.outcome || r.outcome === state.outcome)
-    && (!q || [r.ability_name, r.technique_id, r.technique_name, r.rule_ids, r.alert_mitre_ids].join(" ").toLowerCase().includes(q)));
+    && (!q || [r.ability_name, r.technique_id, r.technique_name, r.rule_ids, r.alert_mitre_ids,
+      ...wazuhRules(r).map(rule => rule.description)].join(" ").toLowerCase().includes(q)));
 }
 function renderKpis(rows){
   const n = rows.length, c = o => rows.filter(r => r.outcome === o).length;
@@ -665,14 +683,22 @@ function renderMatrix(rows){
   });
 }
 const COLS = [["run_utc", "Time"], ["scenario", "Scenario"], ["ability_name", "Ability"], ["technique_id", "Technique"],
-  ["outcome", "Outcome"], ["rule_ids", "Rules"], ["alert_mitre_ids", "Alert tag"], ["time_to_alert_s", "Time to alert"]];
+  ["outcome", "Outcome"], ["rule_ids", "Wazuh rule"], ["alert_mitre_ids", "Alert tag"], ["time_to_alert_s", "Time to alert"]];
 function details(r){
   const box = el("div"), facts = el("dl", "facts");
   [["Tactic", tacticName(r.tactic_norm)], ["Execution", r.execution], ["Caldera status", r.caldera_status],
    ["Technique match", r.technique_match], ["Rule levels", r.rule_levels], ["Response", r.response],
    ["Operation", r.operation_name], ["Run", r.run_id]]
     .forEach(([k, v]) => { if (v == null || v === "") return; facts.append(el("dt", null, k), el("dd", null, String(v))); });
-  const lines = (r.evidence || []).map(e => `rule ${e.rule_id} L${e.rule_level ?? "?"} [${(e.rule_mitre_ids || []).join(",")}] ${e.relation} | event ${e.event_time_utc} | alert ${e.alert_time_utc}`);
+  const lines = (r.evidence || []).flatMap(e => {
+    const text = [`Wazuh rule ${e.rule_id} (level ${e.rule_level ?? "?"}): ${e.rule_description || "Description not saved"}`,
+      `Alert ATT&CK tag: ${(e.rule_mitre_ids || []).join(", ") || "none"}; match: ${e.relation || "unspecified"}; event: ${e.event_time_utc}; alert: ${e.alert_time_utc}`];
+    if (e.command_line) text.push(`Observed command: ${e.command_line}`);
+    else if (e.target_filename) text.push(`Observed file: ${e.target_filename}`);
+    return text;
+  });
+  if (r.technique_match === "different" && r.alert_mitre_ids)
+    lines.push(`Interpretation: Wazuh tagged ${r.alert_mitre_ids.replaceAll(";", ", ")}; CALDERA tested ${r.technique_id}. The rule text is not proof of technique-specific detection.`);
   if ((r.archive_evidence || []).length) lines.push(`${plural(r.archive_evidence.length, "telemetry event")} matched in the archives`);
   (r.notes || []).forEach(t => lines.push("note: " + t));
   box.append(facts, el("pre", "evid", lines.join("\n") || "No correlated evidence."));
@@ -690,13 +716,20 @@ function renderTable(rows){
   const sorted = [...rows].sort((a, b) => { const x = a[state.sort] ?? "", y = b[state.sort] ?? ""; return (x > y ? 1 : x < y ? -1 : 0) * state.dir; });
   if (!sorted.length) { const tr = el("tr"), td = el("td", "empty", "No steps match the filters."); td.colSpan = COLS.length; tr.append(td); tb.append(tr); }
   sorted.forEach(r => {
-    const tr = el("tr", "row"), tech = el("td"), oc = el("td"), tag = el("td", "num", (r.alert_mitre_ids || "").replace(/;/g, ", "));
+    const tr = el("tr", "row"), tech = el("td"), oc = el("td"), rules = el("td", "rule-cell"),
+      tag = el("td", "num", (r.alert_mitre_ids || "").replace(/;/g, ", "));
     tr.tabIndex = 0;
     tech.append(el("div", "strong", r.technique_id || ""), el("div", "small", r.technique_name || ""));
     oc.append(chip(r.outcome));
+    wazuhRules(r).forEach(rule => {
+      const entry = el("div", "rule-entry");
+      entry.append(el("div", "strong", rule.id));
+      entry.append(el("div", "small", rule.description || "Description not saved"));
+      rules.append(entry);
+    });
     if (r.alert_mitre_ids && r.technique_match === "different") tag.append(el("div", "small", "tested as " + (r.technique_id || "")));
     tr.append(el("td", "time", fmtShort(r.run_utc)), el("td", null, scenarioName(r.scenario)), el("td", null, r.ability_name || ""),
-      tech, oc, el("td", "num", (r.rule_ids || "").replace(/;/g, ", ")), tag, el("td", "num", tta(r.time_to_alert_s)));
+      tech, oc, rules, tag, el("td", "num", tta(r.time_to_alert_s)));
     const det = el("tr", "det"), td = el("td");
     det.hidden = true; td.colSpan = COLS.length; td.append(details(r)); det.append(td);
     const toggle = () => { det.hidden = !det.hidden; tr.classList.toggle("open", !det.hidden); };
@@ -926,6 +959,7 @@ function compareCell(group){
     const parts = [row.execution, row.rule_ids ? "Rules: " + row.rule_ids : "",
       row.matched_archive_event_count != null ? "Archive matches: " + row.matched_archive_event_count : ""];
     cell.append(el("span", "small", parts.filter(Boolean).join(" · ")));
+    wazuhRules(row).forEach(rule => cell.append(el("div", "small", `Wazuh ${rule.id}: ${rule.description || "Description not saved"}`)));
   }
   return cell;
 }
