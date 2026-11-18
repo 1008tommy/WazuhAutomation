@@ -41,6 +41,20 @@ outcome also has its own glyph (tick, !, eye, cross, ?) and a text label, so no 
 colour alone. In **Run a scenario**, each scenario card lists its ATT&CK tactics in step order, read
 from that scenario's CALDERA adversary export in `Scenarios/` (PyYAML, from `requirements.txt`).
 
+### Compare saved runs
+
+Open **Compare runs**, choose a scenario, then pick a baseline and a later execution. Start with
+**File Delivery and Execution Lab** to see file creation and execution on separate rows. Selectors
+use saved execution times, not the date you rebuilt the report. Two different operation IDs are
+required; for standard run folders, a repeat collection of one operation uses its most recent
+saved copy. Runs without a known scenario name, operation ID or execution time cannot be paired.
+
+The table aligns steps by ability and technique and shows the saved execution status, matched rules
+and archive counts when available. Repeated or one-sided steps are marked explicitly. Differences in
+endpoint, incomplete collection or unsuccessful execution limit the comparison. A matched alert means
+there is associated evidence; it does not prove detection of the intended technique. This view works
+offline and does not change saved results or Wazuh rules.
+
 ### Try a dashboard launch
 
 The generated `dashboard/index.html` (or `dashboard-preview/index.html`) is an offline report and

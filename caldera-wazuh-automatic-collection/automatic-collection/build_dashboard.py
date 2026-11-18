@@ -13,6 +13,7 @@ The page is vanilla JS with no external fetches, so it opens with a double-click
 import argparse
 import csv
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -115,6 +116,25 @@ def load_scenarios(scenarios_dir, exports_dir=EXPORTS):
     return specs
 
 
+def comparison_metadata(run, scenarios):
+    """Identify known scenarios and order executions by event time, not collection time."""
+    result, meta = run["result"], run["meta"]
+    steps = result.get("results", [])
+    operation = (steps[0].get("operation_name") if steps else None) or ""
+    name = meta.get("scenario") or operation
+    key = next((sp["scenario"] for sp in scenarios if name in (sp["scenario"], sp.get("name"))
+                or re.fullmatch(re.escape(sp["scenario"]) + r"-\d{8}T\d{6}Z", name)), None)
+    times = [t for row in steps if (t := time_value(row.get("run_utc")))]
+    start = min(times) if times else time_value(meta.get("window_start") or
+                                              (result.get("collection_window") or {}).get("start"))
+    hosts = {str(row["host"]).strip().lower() for row in steps if row.get("host")}
+    if meta.get("windows_host"):
+        hosts.add(str(meta["windows_host"]).strip().lower())
+    return {"compare_scenario": key, "execution_time": start.isoformat() if start else None,
+            "operation_id": meta.get("operation_id"), "hosts": sorted(hosts),
+            "partial_archive": bool(meta.get("archive_incomplete_tail_files"))}
+
+
 def build_data(runs, scenarios):
     rows, run_summaries = [], []
     for run in runs:
@@ -138,7 +158,7 @@ def build_data(runs, scenarios):
             rows.append(flat)
         window = result.get("collection_window", {})
         run_summaries.append({
-            "run_id": run["run_id"], "scenario": scenario,
+            "run_id": run["run_id"], "scenario": scenario, **comparison_metadata(run, scenarios),
             "window_start": window.get("start") or meta.get("window_start"),
             "window_end": window.get("end") or meta.get("window_end"),
             "agent_watermark": meta.get("agent_watermark"),
@@ -323,6 +343,12 @@ h2{font-size:14px;font-weight:600;margin:0}
 .tname{font-size:12px;color:var(--ink2);margin:2px 0 0 23px;line-height:1.35}
 .tmeta{font-size:11.5px;color:var(--muted);margin:4px 0 0 23px;line-height:1.35}
 
+.compare-filters label{display:grid;gap:4px;color:var(--ink2);font-weight:500;max-width:100%}
+.compare-filters select{max-width:100%}
+#cmpPanel th{cursor:auto}
+#cmpPanel .small{display:block}
+#cmpNotice{color:var(--ink2)}
+
 /* steps table */
 .tablewrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -403,6 +429,7 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
     <dl class="ctx" id="ctx"></dl>
     <nav class="nav" aria-label="Views">
       <a href="#results" data-v="results"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 13V8M8 13V3M13 13V6"/></svg>Results</a>
+      <a href="#compare" data-v="compare"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4h11m-3-3 3 3-3 3M14 12H3m3-3-3 3 3 3"/></svg>Compare runs</a>
       <a href="#run" data-v="run"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="M6.7 5.6l3.6 2.4-3.6 2.4z" fill="currentColor"/></svg>Run a scenario<span class="live" id="liveDot" hidden title="A scenario is running"></span></a>
     </nav>
     <div class="side-foot" id="sideFoot"></div>
@@ -439,6 +466,22 @@ td.time,td.num{font-variant-numeric:tabular-nums;color:var(--ink2)}
         <section class="panel"><div class="ph"><h2>Detection gaps</h2></div><div id="gaps"></div></section>
         <section class="panel"><div class="ph"><h2>Evidence collection</h2></div><div id="health"></div></section>
       </div>
+    </section>
+
+    <section class="view" id="view-compare" aria-labelledby="h-compare">
+      <div class="phead"><div><h1 id="h-compare">Compare runs</h1>
+        <p class="sub">See what Wazuh recorded for the same steps in two executions of a scenario.</p></div></div>
+      <div class="filters compare-filters">
+        <label>Scenario<select id="cmpScenario"></select></label>
+        <label>Baseline run<select id="cmpBase"></select></label>
+        <label>Later run<select id="cmpLater"></select></label>
+      </div>
+      <p id="cmpNotice" role="status"></p>
+      <section class="panel flush" id="cmpPanel" hidden>
+        <div class="ph"><h2>Step comparison</h2></div>
+        <div class="tablewrap"><table><thead><tr><th scope="col">Scenario step</th><th scope="col">Baseline evidence</th>
+          <th scope="col">Later evidence</th><th scope="col">What changed</th></tr></thead><tbody id="cmpBody"></tbody></table></div>
+      </section>
     </section>
 
     <section class="view" id="view-run" aria-labelledby="h-run">
@@ -843,9 +886,119 @@ function renderRun(){
   else setJob("wait", "Idle", "");
 }
 
+/* Compare saved evidence only; no calls to the lab or changes to matcher verdicts. */
+function compareOptions(select, entries, preferred){
+  select.replaceChildren();
+  for (const [value, label] of entries){
+    const option = el("option", null, label); option.value = value; select.append(option);
+  }
+  select.disabled = !entries.length;
+  if (entries.some(([value]) => value === preferred)) select.value = preferred;
+}
+function compareIssues(run){
+  const issues = [];
+  if (run.archive_collection_status !== "success") issues.push("archive collection unavailable or unverified");
+  if (run.partial_archive) issues.push("incomplete archive records");
+  if (run.queue_alert_rule_ids?.length) issues.push("agent queue warning");
+  if (run.collection_complete !== true) issues.push("collection completeness not confirmed");
+  return issues;
+}
+function evidenceKind(row){
+  if (Number(row.matched_alert_count) > 0 || isDetected(row.outcome)) return "Matched alert";
+  if (Number(row.matched_archive_event_count) > 0 || row.outcome === "telemetry_only") return "Telemetry only";
+  if (!row.outcome || row.outcome === "not_assessable") return "Not assessable";
+  return "No matching evidence";
+}
+function compareSteps(rows){
+  const groups = new Map();
+  for (const row of rows){
+    const key = JSON.stringify([row.ability_id || row.ability_name || null, row.technique_id || null]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return groups;
+}
+function compareCell(group){
+  const cell = el("td");
+  if (!group.length) cell.textContent = "Step not present";
+  for (const row of group){
+    cell.append(el("strong", null, evidenceKind(row)));
+    const parts = [row.execution, row.rule_ids ? "Rules: " + row.rule_ids : "",
+      row.matched_archive_event_count != null ? "Archive matches: " + row.matched_archive_event_count : ""];
+    cell.append(el("span", "small", parts.filter(Boolean).join(" · ")));
+  }
+  return cell;
+}
+function renderComparison(base, later){
+  const body = $("cmpBody"), note = $("cmpNotice");
+  body.replaceChildren(); $("cmpPanel").hidden = !(base && later);
+  if (!base || !later){
+    note.textContent = "Select a scenario with two distinct, dated executions. Collecting the same operation again does not count as another test.";
+    return;
+  }
+  const issues = [];
+  for (const [label, run] of [["Baseline",base],["Later",later]]){
+    const health = compareIssues(run);
+    if (health.length) issues.push(label + ": " + health.join(", ") + ".");
+  }
+  if (base.hosts.length !== 1 || later.hosts.length !== 1 || base.hosts[0] !== later.hosts[0])
+    issues.push("Endpoint differs or is unknown (" + (base.hosts.join(", ") || "unknown") + " / " + (later.hosts.join(", ") || "unknown") + ").");
+  note.textContent = issues.length ? issues.join(" ") + " Differences are observations only." :
+    "Comparing saved evidence on " + base.hosts[0] + ". A matched alert alone does not confirm the tested behaviour.";
+  const [left, right] = [base,later].map(run => compareSteps(DATA.rows.filter(r => r.run_id === run.run_id)));
+  for (const key of new Set([...left.keys(), ...right.keys()])){
+    const a = left.get(key) || [], b = right.get(key) || [], sample = a[0] || b[0];
+    const step = el("th", null, sample.ability_name || "Unnamed step"); step.scope = "row";
+    step.append(el("span","small",sample.technique_id));
+    let change;
+    if (!a.length || !b.length) change = a.length ? "Only in baseline" : "Only in later run";
+    else if (a.length !== 1 || b.length !== 1) change = "Repeated step; review individually";
+    else if (issues.length || !a[0].ability_id || !b[0].ability_id ||
+      [a[0],b[0]].some(r => r.execution !== "reported_success" || r.outcome === "not_assessable" || !r.outcome))
+      change = "Comparison limited";
+    else if (evidenceKind(a[0]) !== evidenceKind(b[0])) change = evidenceKind(a[0]) + " → " + evidenceKind(b[0]);
+    else if (a[0].rule_ids !== b[0].rule_ids) change = "Matched rules changed";
+    else change = "Same evidence category";
+    const tr = el("tr"); tr.append(step, compareCell(a), compareCell(b), el("td",null,change)); body.append(tr);
+  }
+  if (!body.children.length) note.textContent += " Neither run contains scored steps.";
+}
+function initCompare(){
+  const scenario = $("cmpScenario"), baseline = $("cmpBase"), later = $("cmpLater");
+  const eligible = DATA.runs.filter(r => r.compare_scenario && r.execution_time && r.operation_id)
+    .sort((a,b) => Date.parse(a.execution_time) - Date.parse(b.execution_time) || a.run_id.localeCompare(b.run_id));
+  const groups = new Map();
+  for (const run of eligible){
+    if (!groups.has(run.compare_scenario)) groups.set(run.compare_scenario, new Map());
+    // The standard directory name starts with the UTC collection timestamp.
+    const bucket = groups.get(run.compare_scenario), prev = bucket.get(run.operation_id);
+    if (!prev || run.run_id.localeCompare(prev.run_id) > 0) bucket.set(run.operation_id, run);
+  }
+  const runsFor = key => [...(groups.get(key)?.values() || [])].sort((a,b) => Date.parse(a.execution_time) - Date.parse(b.execution_time));
+  const options = runs => runs.map(r => [r.run_id, fmtTime(r.execution_time) + " · " + r.run_id]);
+  const laterThan = (a,b) => Date.parse(a.execution_time) > Date.parse(b.execution_time);
+  const baselines = runs => runs.filter(b => runs.some(r => laterThan(r,b)));
+  const names = [...groups.keys()].sort();
+  compareOptions(scenario, names.map(k => [k, DATA.scenarios.find(s => s.scenario === k)?.name || k]),
+    names.find(k => baselines(runsFor(k)).length));
+  function chooseLater(){
+    const runs = runsFor(scenario.value), base = runs.find(r => r.run_id === baseline.value);
+    const choices = base ? runs.filter(r => laterThan(r,base)) : [];
+    compareOptions(later, options(choices), choices.at(-1)?.run_id);
+    later.onchange = () => renderComparison(base, choices.find(r => r.run_id === later.value));
+    later.onchange();
+  }
+  function chooseBase(){
+    const choices = baselines(runsFor(scenario.value));
+    compareOptions(baseline, options(choices), choices.at(-1)?.run_id);
+    chooseLater();
+  }
+  scenario.onchange = chooseBase; baseline.onchange = chooseLater; chooseBase();
+}
+
 /* navigation and start-up */
 function showView(){
-  const v = location.hash === "#run" ? "run" : "results";
+  const v = location.hash === "#compare" ? "compare" : location.hash === "#run" ? "run" : "results";
   document.querySelectorAll(".view").forEach(x => x.classList.toggle("on", x.id === "view-" + v));
   document.querySelectorAll(".nav a").forEach(a => {
     a.classList.toggle("on", a.dataset.v === v);
@@ -874,7 +1027,7 @@ const hosts = [...new Set(DATA.rows.map(r => r.host).filter(Boolean))];
 [["Control", DATA.control], ["Endpoint", hosts.join(", ") || "No runs yet"], ["Scored", `${plural(DATA.rows.length, "step")}, ${plural(DATA.runs.length, "run")}`]]
   .forEach(([k, v]) => $("ctx").append(el("dt", null, k), el("dd", null, v)));
 $("sideFoot").append(el("b", null, SERVED ? "Live console" : "Static report"), el("span", null, "Updated " + fmtTime(DATA.generated_at)));
-showView(); render(); renderRun();
+initCompare(); showView(); render(); renderRun();
 </script>
 </body>
 </html>

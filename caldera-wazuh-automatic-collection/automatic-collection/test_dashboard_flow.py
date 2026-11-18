@@ -1,5 +1,8 @@
 """Focused checks for dashboard launch and runner failure reporting."""
 import argparse
+import copy
+import shutil
+import subprocess
 import io
 import json
 import os
@@ -9,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import build_dashboard
 import run_scenario
 import serve_dashboard
 
@@ -153,6 +157,77 @@ class DashboardLaunchTests(unittest.TestCase):
                 job = json.loads(responses[0][1])["job"]
                 self.assertEqual(serve_dashboard.JOBS[job]["state"], "running")
                 worker.return_value.start.assert_called_once()
+
+
+
+class CompareRunsTests(unittest.TestCase):
+    specs = [{"scenario": "file-delivery", "name": "File Delivery and Execution Lab"},
+             {"scenario": "discovery", "name": "Discovery"}]
+
+    def run_data(self, day, operation, name="file-delivery", complete=True):
+        stamp = f"202611{day:02}T120000Z"
+        when = f"2026-11-{day:02}T12:00:00Z"
+        rows = [{"operation_name": f"{name}-{stamp}", "run_utc": when, "host": "TEST-PC",
+                 "execution": "reported_success", "ability_id": ability, "ability_name": ability,
+                 "technique_id": technique, "outcome": outcome, "rule_ids": rule}
+                for ability, technique, outcome, rule in [
+                    ("File creation", "T1105", "detected_unlabelled" if day == 1 else "telemetry_only",
+                     "100" if day == 1 else ""),
+                    ("Execution", "T1059.001", "telemetry_only", "")]]
+        return {"run_id": f"{stamp}-{operation}", "meta": {"operation_id": operation,
+                "collection_complete": complete, "archive_collection_status": "success"},
+                "result": {"results": rows}}
+
+    def test_known_scenario_and_execution_identity(self):
+        r = self.run_data(1, "a")
+        r["run_id"] = "recollected-later"
+        info = build_dashboard.comparison_metadata(r, self.specs)
+        self.assertEqual(("file-delivery", "a", ["test-pc"], "2026-11-01"),
+                         (info["compare_scenario"], info["operation_id"], info["hosts"], info["execution_time"][:10]))
+        for step in r["result"]["results"]:
+            step["operation_name"] = "file-delivery-unrelated"
+        self.assertIsNone(build_dashboard.comparison_metadata(r, self.specs)["compare_scenario"])
+
+    def test_offline_compare_controls(self):
+        # Optional: Node with jsdom exercises the actual embedded dashboard script offline.
+        if not shutil.which("node") or subprocess.run(
+                ["node", "-e", "require.resolve('jsdom')"], capture_output=True).returncode:
+            self.skipTest("Install jsdom for the optional offline dashboard interaction test")
+        runs = [self.run_data(1, "opA"), self.run_data(2, "opB"), self.run_data(3, "opC", complete=False),
+                self.run_data(4, "only", name="discovery")]
+        recollected = copy.deepcopy(runs[0])
+        recollected["run_id"] = "20261105T120000Z-opA"
+        runs.append(recollected)
+        runs[2]["meta"]["windows_host"] = "OTHER-PC"
+        runs[2]["result"]["results"].pop()
+        runs[2]["result"]["results"].append(dict(runs[2]["result"]["results"][0], ability_id="new", ability_name="New step"))
+        data = build_dashboard.build_data(runs, self.specs)
+        script = r"""
+const assert = require("node:assert/strict");
+const {JSDOM, VirtualConsole} = require("jsdom");
+const errors = [], console = new VirtualConsole();
+console.on("jsdomError", err => errors.push(err.message));
+const {window} = new JSDOM(require("node:fs").readFileSync(0,"utf8"), {
+  pretendToBeVisual:true, runScripts:"dangerously", url:"file:///saved/index.html#compare", virtualConsole:console});
+const get = id => window.document.getElementById(id);
+const pick = (id,v) => {const s = get(id); s.value=v; assert.equal(s.value,v); s.onchange();};
+assert.deepEqual(errors, []);
+assert.ok(get("view-compare").classList.contains("on"));
+assert.equal(get("cmpBase").options.length, 2);
+pick("cmpBase","20261105T120000Z-opA");
+pick("cmpLater","20261102T120000Z-opB");
+const changes = () => [...get("cmpBody").rows].map(r => r.lastElementChild.textContent);
+assert.deepEqual(changes(), ["Matched alert → Telemetry only","Same evidence category"]);
+pick("cmpLater","20261103T120000Z-opC");
+assert.match(get("cmpNotice").textContent,/Endpoint differs/);
+assert.match(get("cmpNotice").textContent,/collection completeness not confirmed/);
+assert.deepEqual(changes(), ["Comparison limited","Only in baseline","Only in later run"]);
+pick("cmpScenario","discovery");
+assert.ok(get("cmpLater").disabled && get("cmpPanel").hidden);
+assert.deepEqual(errors, []);
+window.close();
+"""
+        subprocess.run(["node", "-e", script], input=build_dashboard.render_html(data), text=True, check=True)
 
 
 if __name__ == "__main__":
