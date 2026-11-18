@@ -681,7 +681,6 @@ const inScope = id => (!state.run || state.run === id) && inScenario(id);
 const resultScenarioName = r => groupLabels.get(runGroups.get(r.run_id)) || scenarioName(r.scenario);
 function syncRunFilters(){
   if (state.run && !inScenario(state.run)) state.run = "";
-  fill("fRun", "All runs", DATA.runs.filter(r => inScenario(r.run_id)).map(r => r.run_id), runLabel);
   $("fRun").value = state.run;
   $("fScenario").value = state.scenario;
   updateAttackFilters();
@@ -1189,6 +1188,7 @@ function showView(){
   });
 }
 addEventListener("hashchange", showView);
+fill("fRun", "All runs", DATA.runs.map(r => r.run_id), runLabel);
 fill("fScenario", "All scenarios", [...groupLabels.keys()].sort((a,b) => groupLabels.get(a).localeCompare(groupLabels.get(b))),
   key => groupLabels.get(key));
 syncRunFilters();
