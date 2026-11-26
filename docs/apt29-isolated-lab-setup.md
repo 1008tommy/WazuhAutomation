@@ -1,32 +1,41 @@
-# APT29 isolated lab setup (two computers)
+# APT29 isolated lab setup (two-host example)
 
-This guide records the lab built in November 2026 for CALDERA APT29 emulation and Wazuh detection testing. It describes the **current, observed setup** and the checks needed before a run. The [root README](../README.md) documents the earlier five portable CALDERA scenarios and a separate standalone Sysinternals Sysmon setup; those instructions remain available.
+This guide describes a reusable two-host lab based on the setup tested in November 2026 for CALDERA APT29 emulation and Wazuh detection testing. The VM names and private addresses below are an **example allocation**; choose unused addresses on one private subnet when recreating it. The [root README](../README.md) documents the earlier five portable CALDERA scenarios and a separate standalone Sysinternals Sysmon setup; those instructions remain available.
 
 The APT29 profile has **not** been run end to end. SentinelOne has **not** yet been deployed or validated in this lab. This guide does not claim that every ability in the profile is ready to execute.
 
 ## Lab inventory
 
-| Computer | VM / role | Lab IPv4 | Confirmed state |
+| Host | VM / role | Example lab IPv4 | Confirmed state in this lab |
 | --- | --- | --- | --- |
-| Desktop PC, 32 GB RAM | Ubuntu CALDERA server | `10.77.29.10/24` | CALDERA VM can be reached from a lab Windows VM; existing CALDERA 5.3.0 installation is documented in the root README. |
-| Desktop PC | Ubuntu Wazuh server | `10.77.29.11/24` | Wazuh manager, indexer, and dashboard were active; Sysmon events from both Windows clients reached `archives.json`. |
-| Laptop, 32 GB RAM | Windows 11 Enterprise Evaluation, `SCRANTON` | `10.77.29.20/24` | Domain joined to `apt29.test`; built-in Sysmon and Wazuh agent installed. Wazuh enrollment name `WindowsHost1`, ID `004` before the domain join. |
-| Laptop | Windows 11 Enterprise Evaluation, `NASHUA` | `10.77.29.21/24` | Domain joined to `apt29.test`; built-in Sysmon and Wazuh agent installed. Wazuh enrollment name `WindowsHost2`, ID `005` before the domain join. |
-| Laptop | Windows Server 2022 Standard Evaluation (Desktop Experience), `NEWYORK` | `10.77.29.30/24` | Active Directory Domain Services and DNS for `apt29.test`; `Get-ADDomain` and `Get-ADDomainController` returned the expected domain and controller. |
+| Host A (server host) | Ubuntu CALDERA server | `10.77.29.10/24` | CALDERA VM can be reached from a lab Windows VM; existing CALDERA 5.3.0 installation is documented in the root README. |
+| Host A | Ubuntu Wazuh server | `10.77.29.11/24` | Wazuh manager, indexer, and dashboard were active; Sysmon events from both Windows clients reached `archives.json`. |
+| Host B (Windows VM host) | Windows 11 Enterprise Evaluation, `SCRANTON` | `10.77.29.20/24` | Domain joined to `apt29.test`; built-in Sysmon and Wazuh agent installed. Wazuh enrollment name `WindowsHost1`, ID `004` before the domain join. |
+| Host B | Windows 11 Enterprise Evaluation, `NASHUA` | `10.77.29.21/24` | Domain joined to `apt29.test`; built-in Sysmon and Wazuh agent installed. Wazuh enrollment name `WindowsHost2`, ID `005` before the domain join. |
+| Host B | Windows Server 2022 Standard Evaluation (Desktop Experience), `NEWYORK` | `10.77.29.30/24` | Active Directory Domain Services and DNS for `apt29.test`; `Get-ADDomain` and `Get-ADDomainController` returned the expected domain and controller. |
 
 The Windows client build shown during setup was `26100`, which is Windows 11 24H2. `Get-ComputerInfo.WindowsProductName` showed a stale `Windows 10 Enterprise Evaluation` registry value on one client; the Windows 11 watermark and build identify the installed OS. See [Microsoft's Windows 11 release information](https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information) and the [PowerShell property reference](https://learn.microsoft.com/en-us/dotnet/api/microsoft.powershell.commands.computerinfo).
 
 The Wazuh **agent enrollment name**, Windows **computer name**, and CALDERA **agent name** are separate identifiers. Record the agent ID and Windows hostname in each test run instead of assuming they match.
 
-## Isolated network between the desktop and laptop
+## Isolated network between the two hosts
 
-1. Connect the two computers directly with the dedicated Ethernet cable. On the desktop, bridge VMware **VMnet2** to the physical `Realtek Gaming GbE Family Controller`. On the laptop, bridge **VMnet2** to the physical `Intel(R) Ethernet Connection (18) I219-LM`. Select the physical Ethernet device explicitly, not a Wi-Fi Direct or virtual adapter.
-2. Connect **one network adapter per lab VM** to **Custom: VMnet2**. Do not attach VMnet0, VMnet8/NAT, a second adapter, or a shared Internet connection to a lab VM. The physical hosts may use Wi-Fi separately; Internet Connection Sharing, Windows Network Bridge, and host IP forwarding must remain off.
-3. On each physical Ethernet adapter used for the cable, the lab setup retained the **VMware Bridge Protocol** binding and disabled the host's IPv4/IPv6 bindings. This leaves the hosts without an IP address on the lab cable. It also means the desktop host browser is not expected to reach `10.77.29.10`; use a browser inside a lab VM to reach `http://10.77.29.10:8888` or the VMware console to administer the CALDERA VM.
-4. Give the VMs the static addresses in the inventory table. Do **not** set a default gateway. After the domain controller exists, set both Windows clients' DNS server to `10.77.29.30`; `NEWYORK` uses itself for DNS. For the Ubuntu VMs, preserve the existing `/etc/netplan/00-installer-config.yaml` interface match while setting static `ens33` addresses.
+1. Connect the two hosts directly with a dedicated Ethernet cable. In VMware's **Virtual Network Editor** on each host, bridge the lab VMnet (VMnet2 in this example) to that host's **physical Ethernet adapter connected to the cable**. The adapter's vendor and display name vary by computer; identify it from the Windows Ethernet connection or `Get-NetAdapter`. Select it explicitly instead of auto-bridging to Wi-Fi, Wi-Fi Direct, or another virtual adapter.
+2. Connect **one network adapter per lab VM** to the custom lab VMnet (**Custom: VMnet2** in this example). Do not attach an Internet-connected bridge, NAT, a second adapter, or a shared Internet connection to a lab VM. The physical hosts may use Wi-Fi separately; Internet Connection Sharing, Windows Network Bridge, and host IP forwarding must remain off.
+3. On each physical Ethernet adapter used for the cable, the lab setup retained the **VMware Bridge Protocol** binding and disabled the host's IPv4/IPv6 bindings. This leaves the hosts without an IP address on the lab cable. It also means Host A's browser is not expected to reach the CALDERA guest IP; use a browser inside a lab VM or the VMware console to administer CALDERA.
+4. Give the VMs distinct static addresses on the same private subnet, using the inventory table as an example. Do **not** set a default gateway. After the domain controller exists, set both Windows clients' DNS server to its private address (`10.77.29.30` in this example); the domain controller uses itself for DNS. For the Ubuntu VMs, preserve the existing `/etc/netplan/00-installer-config.yaml` interface match while setting static addresses on the lab interface.
 5. Before an APT29 run, verify each guest's address and routes. On Ubuntu use `ip -br addr`, `ip route`, and `ip -6 route`; on Windows use `ipconfig /all`, `route print -4`, and `route print -6`. There should be no IPv4 or IPv6 default route. From a Windows lab VM, check `ping 10.77.29.10`, `ping 10.77.29.11`, and `Test-NetConnection 10.77.29.10 -Port 8888`.
 
-When the desktop's Ethernet cable is reconnected to a normal home network, **VMnet2 must not remain bridged to that network**. It was changed to host-only for that use. Before the next lab session, reconnect the direct cable, restore the physical Ethernet bridge on both hosts, check the host bindings, and repeat the guest route and connectivity checks. A working ping alone does not prove that the guests have no other route.
+When a host's Ethernet cable is reconnected to a normal home or office network, **the lab VMnet must not remain bridged to that network**. In the tested setup, VMnet2 was changed to host-only for that use. Before the next lab session, reconnect the direct cable, restore the physical Ethernet bridge on both hosts, check the host bindings, and repeat the guest route and connectivity checks. A working ping alone does not prove that the guests have no other route.
+
+### Configure IPv4 when starting a new Windows VM
+
+On a fresh Windows guest, the private link may not provide DHCP. If `ipconfig` shows no usable IPv4 address or a `169.254.x.x` address, set the address manually before testing connectivity:
+
+1. Confirm the VM has one network adapter connected to the lab VMnet. Start Windows, press **Win+R**, enter `ncpa.cpl`, and open the active **Ethernet** adapter's **Properties**.
+2. Select **Internet Protocol Version 4 (TCP/IPv4) > Properties**, then **Use the following IP address**. Enter an unused address for that VM (`10.77.29.20`, `.21`, or `.30` in the example table) and subnet mask `255.255.255.0`. Leave **Default gateway** empty.
+3. For the domain controller, set **Preferred DNS server** to its own private address. For a Windows client, set DNS to the domain controller's private address after DNS is running; until then, it can be left blank. Do not use a public DNS server on the isolated guest.
+4. Click **OK** to close both dialogs. In PowerShell, run `ipconfig /all` and `route print -4` to confirm the chosen address, mask, and absence of a default gateway. Then test access to the other lab VMs. If this is a domain client, also check `Resolve-DnsName '_ldap._tcp.dc._msdcs.apt29.test' -Type SRV` before joining the domain.
 
 ## VMware guest integration and snapshots
 
@@ -36,7 +45,7 @@ The two Windows clients were snapshotted after Sysmon/Wazuh event collection wor
 
 ## Windows Server domain controller
 
-The laptop's third VM was installed from the Windows Server 2022 ISO using **Standard Evaluation (Desktop Experience)**, not Server Core. It had 4 GB RAM, a 60 GB virtual disk, and only VMnet2. Creating the VMware VM with **I will install the operating system later**, then attaching the ISO manually, avoided a `No images are available` setup screen associated with VMware's automated installation path. The Server was assigned `10.77.29.30/24`, DNS `10.77.29.30`, and no gateway. It could ping both Ubuntu servers before promotion.
+Host B's Windows Server VM was installed from the Windows Server 2022 ISO using **Standard Evaluation (Desktop Experience)**, not Server Core. The tested VM had 4 GB RAM, a 60 GB virtual disk, and only the lab VMnet. Creating the VMware VM with **I will install the operating system later**, then attaching the ISO manually, avoided a `No images are available` setup screen associated with VMware's automated installation path. The Server was assigned `10.77.29.30/24`, DNS `10.77.29.30`, and no gateway. It could ping both Ubuntu servers before promotion.
 
 The domain was created in an elevated PowerShell session with these commands, with reboots after the rename and forest creation:
 
@@ -59,10 +68,16 @@ The observed result identified `NEWYORK.apt29.test` at `10.77.29.30` as the doma
 On each Windows client, set DNS to the domain controller, confirm the AD DNS record resolves, then join with domain Administrator credentials. The original emulation content refers to `scranton`, so the first client was named `SCRANTON`; the second was named `NASHUA`.
 
 ```powershell
-Set-DnsClientServerAddress -InterfaceAlias 'Ethernet0' -ServerAddresses '10.77.29.30'
+$labAdapter = (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).Name
+Set-DnsClientServerAddress -InterfaceAlias $labAdapter -ServerAddresses '10.77.29.30'
 Resolve-DnsName '_ldap._tcp.dc._msdcs.apt29.test' -Type SRV
 # Run on the first client; use NASHUA as -NewName on the second client.
 Add-Computer -DomainName 'apt29.test' -NewName 'SCRANTON' -Credential (Get-Credential 'APT29\Administrator') -Restart
+```
+
+After the restart, sign in again and confirm the join:
+
+```powershell
 Get-CimInstance Win32_ComputerSystem | Select-Object Name, Domain, PartOfDomain
 ```
 
@@ -84,7 +99,7 @@ Get-WinEvent -LogName 'Microsoft-Windows-Sysmon/Operational' -MaxEvents 10 |
 
 The local event list showed process creation (Event ID `1`) and process termination (Event ID `5`). A custom Sysmon XML policy and file creation Event ID `11` have **not** been verified on these two new clients. See [Microsoft's built-in Sysmon instructions](https://learn.microsoft.com/en-us/windows/security/operating-system-security/sysmon/how-to-enable-sysmon).
 
-The isolated Windows VMs could not resolve `packages.wazuh.com`. The Wazuh agent MSI was downloaded on the laptop host and transferred to each clean guest before guest sharing was disabled. Install the MSI on each client with the manager address `10.77.29.11` and a **unique** enrollment name, then start the agent. For example, from an elevated PowerShell prompt with the MSI already on the guest:
+The isolated Windows VMs could not resolve `packages.wazuh.com`. The Wazuh agent MSI was downloaded on a host with Internet access and transferred to each clean guest before guest sharing was disabled. Install the MSI on each client with the manager's private address (`10.77.29.11` here) and a **unique** enrollment name, then start the agent. For example, from an elevated PowerShell prompt with the MSI already on the guest:
 
 ```powershell
 msiexec.exe /i 'C:\Install\wazuh-agent-4.14.10-1.msi' /q WAZUH_MANAGER='10.77.29.11' WAZUH_AGENT_NAME='WindowsHost1'
