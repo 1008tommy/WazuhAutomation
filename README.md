@@ -2,6 +2,10 @@
 
 This repository contains [CALDERA lab scenarios](Scenarios/README.md), a [portable scenario bundle](Scenarios/portable/README.md), and [scripts for collecting CALDERA and Wazuh detection evidence](caldera-wazuh-automatic-collection/automatic-collection/README.md).
 
+## Current two-computer APT29 lab
+
+The [APT29 isolated lab setup guide](docs/apt29-isolated-lab-setup.md) records the desktop-and-laptop network, VM addresses, Windows domain, built-in Sysmon/Wazuh collection checks, snapshot procedure, and remaining APT29 prerequisites. The installation notes below also document the earlier five-scenario lab.
+
 ## CALDERA 5.3.0 lab installation
 
 These are the steps used to set up the isolated Ubuntu CALDERA lab. They are installation notes for a fresh VM; an existing CALDERA server does not need to be reinstalled to use the scenario bundle.
